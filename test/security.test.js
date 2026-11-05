@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { collectPullRequests, normalizePullRequest } from "../src/github.js";
+import { createPrSidebarExtension } from "../src/extension.js";
 import { createPullRequestPanel } from "../src/sidebar.js";
 
 test("unsafe pull request titles become single-line terminal-safe text", () => {
@@ -54,4 +55,40 @@ test("checked-out and pull request branches are safe in the panel", async () => 
   });
 
   assert.doesNotMatch(panel.render(100).join("\n"), /\u202e/);
+});
+
+test("pr-open matches raw branch identity even when another pull request is first", async () => {
+  const state = await unsafeBranchFixture();
+  const handlers = new Map();
+  const commands = new Map();
+  const calls = [];
+  const context = {
+    mode: "tui",
+    hasUI: true,
+    cwd: ".",
+    ui: { setStatus() {}, notify() {} },
+  };
+
+  createPrSidebarExtension({
+    collect: async () => ({ ...state, pullRequests: [...state.pullRequests].reverse() }),
+    execute: async (...args) => {
+      calls.push(args);
+      return { exitCode: 0 };
+    },
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  })({
+    on: (name, handler) => handlers.set(name, handler),
+    registerCommand: (name, command) => commands.set(name, command),
+  });
+
+  await handlers.get("session_start")({}, context);
+  try {
+    await commands.get("pr-open").handler("", context);
+    assert.deepEqual(calls, [
+      ["gh", ["pr", "view", "1", "--repo", "org/repo", "--web"], { cwd: "." }],
+    ]);
+  } finally {
+    handlers.get("session_shutdown")();
+  }
 });

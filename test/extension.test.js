@@ -27,13 +27,24 @@ function createHarness() {
     },
     bold: (text) => text,
   };
+  const customs = [];
   const ui = {
+    customs,
     custom(factory, options) {
-      const component = factory(tui, theme, {}, () => {});
+      let resolveCustom;
+      const promise = new Promise((resolve) => { resolveCustom = resolve; });
+      const entry = { component: undefined, options, closed: false, promise };
+      const done = () => {
+        entry.closed = true;
+        resolveCustom();
+      };
+      const component = factory(tui, theme, {}, done);
+      entry.component = component;
+      customs.push(entry);
       this.component = component;
       this.options = options;
       options.onHandle?.({ setHidden(value) { ui.overlayHidden = value; } });
-      return new Promise(() => {});
+      return promise;
     },
     notify(message, level) {
       notifications.push({ message, level });
@@ -90,6 +101,53 @@ test("the extension mounts a passive theme-aware sidebar and refreshes on comman
   await harness.commands.get("pr-refresh").handler("", harness.context);
   assert.equal(calls.length, 2);
   assert.deepEqual(harness.notifications.at(-1), { message: "Pull requests refreshed", level: "info" });
+});
+
+test("pr-focus opens a capturing inspector and loads Overview, Checks and Files metadata", async () => {
+  const harness = createHarness();
+  const focusedResult = {
+    repository: "oniricosistemas/gentle-shell-PR",
+    branch: "feat/sidebar",
+    pullRequests: [{
+      number: 42, title: "Add PR sidebar", url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
+      headBranch: "feat/sidebar", baseBranch: "main", isDraft: false, review: "approved", merge: "ready",
+      checks: { passed: 1, failed: 0, pending: 0, total: 1 }, updatedAt: "2026-11-05T12:00:00Z",
+    }],
+    error: undefined,
+  };
+  const detailCalls = [];
+  createPrSidebarExtension({
+    collect: async () => focusedResult,
+    collectDetail: async (options) => {
+      detailCalls.push(options);
+      return {
+        repository: focusedResult.repository,
+        error: undefined,
+        pullRequest: {
+          ...focusedResult.pullRequests[0], bodySummary: "Focused detail", author: "octocat", labels: [],
+          state: "OPEN", additions: 10, deletions: 2, changedFiles: 1, checks: [{ name: "test", status: "passed" }],
+          files: [{ path: "src/extension.js", additions: 10, deletions: 2 }],
+        },
+      };
+    },
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  })(harness.pi);
+
+  await harness.handlers.get("session_start")({}, harness.context);
+  await harness.commands.get("pr-focus").handler("", harness.context);
+
+  assert.equal(harness.ui.customs.length, 2);
+  assert.deepEqual(detailCalls, [{ cwd: "/workspace/project", repository: focusedResult.repository, number: 42 }]);
+  const inspector = harness.ui.customs[1];
+  assert.equal(inspector.options.overlay, true);
+  assert.equal(inspector.options.overlayOptions.width, "85%");
+  assert.equal(inspector.options.overlayOptions.maxHeight, "85%");
+  assert.notEqual(inspector.options.overlayOptions.nonCapturing, true);
+  assert.match(inspector.component.render(96).join("\n"), /Focused detail/);
+  inspector.component.handleInput("\u001b");
+  await inspector.promise;
+  assert.equal(inspector.closed, true);
 });
 
 test("the extension stays inactive outside interactive TUI mode", async () => {

@@ -58,9 +58,10 @@ function factsToken(pr) {
   return "muted";
 }
 
-export function createPullRequestPanel({ tui, theme, initialState, onCollapsedChange }) {
+export function createPullRequestPanel({ tui, theme, initialState, onCollapsedChange, onOpenPullRequest }) {
   let state = initialState;
   let collapsed = false;
+  let pullRequestTitleRows = new Map();
 
   const paint = (token, text, bold = false) => {
     const emphasized = bold && typeof theme.bold === "function" ? theme.bold(text) : text;
@@ -68,6 +69,7 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
   };
 
   const render = (width) => {
+    pullRequestTitleRows = new Map();
     const boundedWidth = Math.max(0, Math.floor(width));
     if (boundedWidth === 0) return [];
     if (boundedWidth === 1) return [paint("muted", "…")];
@@ -105,6 +107,7 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
     }
 
     for (const pr of state.pullRequests.slice(0, 3)) {
+      pullRequestTitleRows.set(lines.length, pr);
       lines.push(row("text", `#${pr.number} ${pr.title}`, true));
       const headBranch = cleanExternalText(pr.headBranch) || "unknown";
       const baseBranch = cleanExternalText(pr.baseBranch) || "unknown";
@@ -139,9 +142,17 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
     setCollapsed,
     isCollapsed: () => collapsed,
     handleMouse(event) {
-      if (event.button !== "left" || event.y !== 0 || event.type !== "click") return undefined;
-      setCollapsed(!collapsed);
-      return { handled: true, render: true };
+      if (event?.button !== "left" || event.type !== "click") return undefined;
+      if (event.y === 0) {
+        setCollapsed(!collapsed);
+        return { handled: true, render: true };
+      }
+      const pullRequest = pullRequestTitleRows.get(event.y);
+      if (pullRequest && !collapsed) {
+        onOpenPullRequest?.(pullRequest);
+        return { handled: true, render: false };
+      }
+      return undefined;
     },
   };
 }

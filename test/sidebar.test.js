@@ -69,6 +69,21 @@ test("the panel renders pull request facts with semantic colors from the active 
   assert.ok(theme.calls.includes("error"));
 });
 
+test("clicking a pull request title opens its focused inspector", () => {
+  const opened = [];
+  const panel = createPullRequestPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: loadedState,
+    onOpenPullRequest: (pullRequest) => opened.push(pullRequest),
+  });
+
+  panel.render(42);
+  assert.deepEqual(panel.handleMouse({ type: "click", button: "left", x: 4, y: 2 }), { handled: true, render: false });
+  assert.equal(opened[0], loadedState.pullRequests[0]);
+  assert.equal(panel.isCollapsed(), false);
+});
+
 test("the panel has a compact collapsed state", () => {
   const panel = createPullRequestPanel({
     tui: { requestRender() {} },

@@ -1,4 +1,5 @@
-import { collectPullRequests, executeFile } from "./github.js";
+import { collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";
+import { createPullRequestInspector } from "./inspector.js";
 import { attachGentleShellRailPanel, createPullRequestPanel } from "./sidebar.js";
 
 const UI_KEY = "gentle-shell-pr";
@@ -14,6 +15,7 @@ const EMPTY_STATE = {
 
 export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
+  const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const execute = dependencies.execute ?? executeFile;
   const setIntervalFn = dependencies.setIntervalFn ?? setInterval;
   const clearIntervalFn = dependencies.clearIntervalFn ?? clearInterval;
@@ -68,11 +70,79 @@ export function createPrSidebarExtension(dependencies = {}) {
       }
     };
 
+    const selectPullRequest = (state) => state?.pullRequests.find((item) => item.headBranch === state.branch) ?? state?.pullRequests[0];
+
+    const openInGitHub = async (current, pullRequest, context = current.context) => {
+      if (!current.state.repository || !pullRequest) return false;
+      const result = await execute("gh", ["pr", "view", String(pullRequest.number), "--repo", current.state.repository, "--web"], { cwd: context.cwd });
+      if (result.exitCode !== 0) context.ui.notify("Could not open the pull request", "warning");
+      return result.exitCode === 0;
+    };
+
+    const openInspector = async (current, pullRequest, context = current.context) => {
+      if (active !== current || !current.state.repository || !pullRequest) {
+        context.ui.notify("No pull request is available", "warning");
+        return;
+      }
+      if (current.inspectorSession) return;
+
+      const session = {
+        component: undefined,
+        finish: undefined,
+        state: { repository: current.state.repository, pullRequest: undefined, error: undefined, loading: true },
+      };
+      current.inspectorSession = session;
+      const inspectorPromise = context.ui.custom((tui, theme, _keybindings, done) => {
+        session.finish = () => done(undefined);
+        session.component = createPullRequestInspector({
+          tui,
+          theme,
+          initialState: session.state,
+          onClose: session.finish,
+          onOpenGitHub: (candidate) => { void openInGitHub(current, candidate, context); },
+        });
+        return session.component;
+      }, {
+        overlay: true,
+        overlayOptions: {
+          anchor: "center",
+          width: "85%",
+          minWidth: 32,
+          maxHeight: "85%",
+          margin: 1,
+        },
+      });
+      void inspectorPromise.catch(() => {
+        if (active === current) context.ui.notify("Pull request inspector unavailable", "warning");
+      }).finally(() => {
+        if (current.inspectorSession === session) current.inspectorSession = undefined;
+      });
+
+      try {
+        const detail = await collectDetail({
+          cwd: context.cwd,
+          repository: current.state.repository,
+          number: pullRequest.number,
+        });
+        if (active !== current || current.inspectorSession !== session) return;
+        session.state = { ...detail, loading: false };
+      } catch {
+        session.state = {
+          repository: current.state.repository,
+          pullRequest: undefined,
+          error: "Could not load pull request details",
+          loading: false,
+        };
+      }
+      if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+    };
+
     const stop = () => {
       const current = active;
       active = undefined;
       if (!current) return;
       if (current.timerId !== undefined) clearIntervalFn(current.timerId);
+      current.inspectorSession?.finish?.();
       current.rail?.dispose();
       current.finish?.();
       current.context.ui.setStatus(UI_KEY, undefined);
@@ -87,6 +157,9 @@ export function createPrSidebarExtension(dependencies = {}) {
           initialState: current.state,
           onCollapsedChange: (collapsed) => {
             current.collapsed = collapsed;
+          },
+          onOpenPullRequest: (pullRequest) => {
+            void openInspector(current, pullRequest, current.context);
           },
         });
         panel.setCollapsed(current.collapsed);
@@ -183,17 +256,31 @@ export function createPrSidebarExtension(dependencies = {}) {
       },
     });
 
+    pi.registerCommand("pr-focus", {
+      description: "Open the current pull request inspector",
+      handler: async (_args, context) => {
+        const state = active?.state;
+        const pullRequest = selectPullRequest(state);
+        if (!active || !state?.repository || !pullRequest) {
+          context.ui.notify("No pull request is available", "warning");
+          return;
+        }
+        active.context = context;
+        await openInspector(active, pullRequest, context);
+      },
+    });
+
     pi.registerCommand("pr-open", {
       description: "Open the current branch pull request in GitHub",
       handler: async (_args, context) => {
         const state = active?.state;
-        const pr = state?.pullRequests.find((item) => item.headBranch === state.branch) ?? state?.pullRequests[0];
-        if (!state?.repository || !pr) {
+        const pullRequest = selectPullRequest(state);
+        if (!active || !state?.repository || !pullRequest) {
           context.ui.notify("No pull request is available", "warning");
           return;
         }
-        const result = await execute("gh", ["pr", "view", String(pr.number), "--repo", state.repository, "--web"], { cwd: context.cwd });
-        if (result.exitCode !== 0) context.ui.notify("Could not open the pull request", "warning");
+        active.context = context;
+        await openInGitHub(active, pullRequest, context);
       },
     });
   };

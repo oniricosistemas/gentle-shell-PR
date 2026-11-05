@@ -22,7 +22,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T4** — S4 — Route: parent — Enroll the project for Engram Cloud synchronization and record reproducible configuration. Commit: `abe72cb`.
 - [x] **T5** — S1, S2, S3, S9 — Route: parent — Publish the repository, apply discovery topics, and verify public metadata. Commit: `abe72cb` (first public push).
 - [x] **T6** — S1-S9 — Route: parent — Run package, test, installation, and repository verification; document the verified usage path. Commit: `4aea7f1`.
-- [ ] **T7** — S7, S8 — Route: parent — Sanitize GitHub-controlled text before terminal rendering. Commit: pending.
+- [x] **T7** — S7, S8 — Route: parent — Sanitize GitHub-controlled text before terminal rendering. Commits: `578d11a`, `9f00a70`, `e814129`.
 
 ## Log
 
@@ -33,3 +33,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L5** — Public repository created at `https://github.com/oniricosistemas/gentle-shell-PR` with topics `gentle-shell-package` and `gentle-shell-extension`.
 - **L6** — Verified 12 deterministic tests, syntax checks, package dry-run contents, isolated local Pi installation, live read-only GitHub collection, public repository metadata, and successful push to remote `main`.
 - **L7** — Final hardening added after review of the reference implementation's warning that external PR titles can contain terminal control or bidirectional formatting characters.
+- **L8** — Independent verification found and reproduced two correction blockers: greedy OSC stripping removed visible text, and sanitizing stored branch identity broke current-PR selection. The correction now preserves raw identity for comparisons, sanitizes only presentation, preserves visible OSC-separated text, and passes 17 tests plus independent verification.

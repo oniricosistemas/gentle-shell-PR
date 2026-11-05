@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+// Intentional temporary syntax error for the CI/sidebar test; remove this comment and statement to revert.
+const intentionalCiSidebarSyntaxError = ;
+
 import { createPullRequestInspector } from "../src/inspector.js";
 
 function createTheme() {

@@ -31,7 +31,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T9** — S12, S13 — Route: worker — Add and test bounded read-only PR detail collection for Overview, Checks, and Files metadata. Commit: `1d6376f`.
 - [x] **T10** — S12, S13 — Route: parent — Implement the theme-aware focused PR inspector with Overview, Checks, and Files tabs, without a diff viewer. Commit: `e2cf493`.
 - [x] **T11** — S12, S13 — Route: parent — Open the inspector from PR title click and `/pr-focus`, preserving `/pr-open` and sidebar behavior. Commit: `8a5c88a`.
-- [ ] **T12** — S12, S13 — Route: parent — Update usage documentation, complete the design handoff, and verify the first upgrade. Commit: pending.
+- [x] **T12** — S12, S13 — Route: parent — Update usage documentation, complete the design handoff, and verify the first upgrade. Commit: `1bea325`.
 
 ## Log
 
@@ -48,3 +48,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L11** — "una duda, para no sobrecargar el sidebar, con convendria que al hacer click sobre el nombre del PR se abra una ventana con toda la información, en vez de mostrarla toda en el sidebar, hasta podriamos hacer como pestañas para lo que va a mostrar cada una de las versiones, que te parece?"
 - **L12** — "ok, yo sacaria lo del diff gentle-shell ya trae uno. Vamos con el primer upgrade"
 - **L13** — Implementation handoff selected `design/pr-sidebar-roadmap/01-v02-focused-detail.html`; the other roadmap artboards remain alternatives. The production inspector omits a diff viewer and uses Files only for metadata/listing because Gentle Shell already provides diff viewing.
+- **L14** — v0.2 verification: `npm run check` passed all 30 tests; the selected HTML artboard parsed successfully; `git diff --check` passed. `npm run pack:check` was attempted once and timed out after 30 seconds without output, so package dry-run proof remains unavailable for this work unit.

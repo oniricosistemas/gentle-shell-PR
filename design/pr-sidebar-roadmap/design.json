@@ -1,0 +1,35 @@
+{
+  "title": "gentle-shell-PR roadmap",
+  "brief": "Four progressive sidebar mockups showing how gentle-shell-PR could evolve from focused pull request detail to a multi-repository operational command center.",
+  "feature": "odd/tasks/gentle-shell-pr.md",
+  "artboards": [
+    {
+      "file": "01-v02-focused-detail.html",
+      "title": "v0.2 · Focused PR detail",
+      "tradeoff": "Adds useful depth and keyboard focus while preserving the compact rail.",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "file": "02-v03-review-context.html",
+      "title": "v0.3 · Review and issue context",
+      "tradeoff": "Speeds up diagnosis with issues, threads, and failed logs, at the cost of a denser panel.",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "file": "03-v04-merge-timeline.html",
+      "title": "v0.4 · Merge workflow timeline",
+      "tradeoff": "Provides complete post-merge visibility but requires a taller, scroll-oriented sidebar.",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "file": "04-v05-command-center.html",
+      "title": "v0.5 · Multi-repository command center",
+      "tradeoff": "Maximizes operational visibility across repos, agents, and ODD work while introducing the most complexity and distraction.",
+      "width": 1440,
+      "height": 900
+    }
+  ]
+}

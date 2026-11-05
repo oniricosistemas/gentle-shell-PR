@@ -27,6 +27,28 @@ Restart or reload Gentle Shell after installation.
 pi install git:github.com/oniricosistemas/gentle-shell-PR
 ```
 
+### Update an existing installation
+
+Update only this extension in Gentle Shell:
+
+```sh
+gentle-shell update git:github.com/oniricosistemas/gentle-shell-PR
+```
+
+Or update every package installed in Gentle Shell:
+
+```sh
+gentle-shell update --extensions
+```
+
+For a direct Pi installation, use the equivalent Pi command:
+
+```sh
+pi update git:github.com/oniricosistemas/gentle-shell-PR
+```
+
+Restart or reload Gentle Shell/Pi after the update. Because the installation source is an unpinned Git repository, the update command reconciles the local checkout with the newest revision of its default branch.
+
 For one local development run:
 
 ```sh
@@ -115,3 +137,11 @@ The repository pins its Engram identity in `.engram/config.json`. Project enroll
 ## License
 
 MIT © 2026 Onírico Sistemas.
+
+## Built with Gentle AI
+
+This project was built with [Gentle AI](https://github.com/Gentleman-Programming/gentle-ai).
+
+<p align="left">
+  <img src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle AI" width="280">
+</p>

@@ -13,6 +13,8 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 7. **S7** — "sería posible hacer un sidebar que haga lo mismo"
 8. **S8** — "ok, vamos con eso entonces"
 9. **S9** — "gentle-shell-PR"
+10. **S10** — "agregar al readme los comandos para actualizar la extension (o como se hace con una nueva version, teniendo instalda una ya)"
+11. **S11** — "agregar al final de todo la imagen https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png haciendo referencia a que se realizo con gentle-ai"
 
 ## Tasks
 
@@ -23,6 +25,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T5** — S1, S2, S3, S9 — Route: parent — Publish the repository, apply discovery topics, and verify public metadata. Commit: `abe72cb` (first public push).
 - [x] **T6** — S1-S9 — Route: parent — Run package, test, installation, and repository verification; document the verified usage path. Commit: `4aea7f1`.
 - [x] **T7** — S7, S8 — Route: parent — Sanitize GitHub-controlled text before terminal rendering. Commits: `578d11a`, `9f00a70`, `e814129`.
+- [ ] **T8** — S10, S11 — Route: parent — Document extension updates and Gentle AI attribution. Commit: pending.
 
 ## Log
 
@@ -34,3 +37,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L6** — Verified 12 deterministic tests, syntax checks, package dry-run contents, isolated local Pi installation, live read-only GitHub collection, public repository metadata, and successful push to remote `main`.
 - **L7** — Final hardening added after review of the reference implementation's warning that external PR titles can contain terminal control or bidirectional formatting characters.
 - **L8** — Independent verification found and reproduced two correction blockers: greedy OSC stripping removed visible text, and sanitizing stored branch identity broke current-PR selection. The correction now preserves raw identity for comparisons, sanitizes only presentation, preserves visible OSC-separated text, and passes 17 tests plus independent verification.
+- **L9** — "ok un par de detalles...\n1- agregar al readme los comandos para actualizar la extension (o como se hace con una nueva version, teniendo instalda una ya)\n2- agregar al final de todo la imagen https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png haciendo referencia a que se realizo con gentle-ai"

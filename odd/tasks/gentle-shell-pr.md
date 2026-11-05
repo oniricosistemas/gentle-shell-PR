@@ -19,9 +19,9 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T1** — S1, S2, S3, S9 — Route: parent — Scaffold the public Gentle Shell extension repository and package metadata. Commit: `8ed44f4`.
 - [x] **T2** — S6, S7, S8 — Route: parent — Implement and test the bounded read-only GitHub PR state collector. Commit: `c104c8a`.
 - [x] **T3** — S5, S6, S7, S8 — Route: parent — Implement and test the compact theme-aware Gentle Shell sidebar and lifecycle. Commits: `ff31ac2`, `f7d6cf0`.
-- [x] **T4** — S4 — Route: parent — Enroll the project for Engram Cloud synchronization and record reproducible configuration. Commit: pending.
-- [ ] **T5** — S1, S2, S3, S9 — Route: parent — Publish the repository, apply discovery topics, and verify public metadata. Commit: pending.
-- [ ] **T6** — S1-S9 — Route: parent — Run package, test, installation, and repository verification; document the verified usage path. Commit: pending.
+- [x] **T4** — S4 — Route: parent — Enroll the project for Engram Cloud synchronization and record reproducible configuration. Commit: `abe72cb`.
+- [x] **T5** — S1, S2, S3, S9 — Route: parent — Publish the repository, apply discovery topics, and verify public metadata. Commit: `abe72cb` (first public push).
+- [x] **T6** — S1-S9 — Route: parent — Run package, test, installation, and repository verification; document the verified usage path. Commit: pending final close.
 
 ## Log
 
@@ -29,4 +29,5 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L2** — Repository/package choice: "gentle-shell-PR".
 - **L3** — Engram configured from `.engram/config.json` as `gentle-shell-PR`; Engram normalizes the cloud identity to `gentle-shell-pr`.
 - **L4** — Engram Cloud enrollment verified as enrolled; explicit export/import sync completed with 1 local chunk, 1 remote chunk, and 0 pending imports.
-- **L5** — Public repository created at `https://github.com/oniricosistemas/gentle-shell-PR` with topics `gentle-shell-package` and `gentle-shell-extension`; content push remains pending final verification.
+- **L5** — Public repository created at `https://github.com/oniricosistemas/gentle-shell-PR` with topics `gentle-shell-package` and `gentle-shell-extension`.
+- **L6** — Verified 12 deterministic tests, syntax checks, package dry-run contents, isolated local Pi installation, live read-only GitHub collection, public repository metadata, and successful push to remote `main`.

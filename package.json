@@ -1,7 +1,7 @@
 {
   "name": "gentle-shell-pr",
-  "version": "0.1.0",
-  "description": "A compact, read-only pull request sidebar for Gentle Shell and Pi.",
+  "version": "0.2.0",
+  "description": "A compact, read-only pull request sidebar and focused inspector for Gentle Shell and Pi.",
   "type": "module",
   "license": "MIT",
   "author": "Onírico Sistemas",

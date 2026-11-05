@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "chosen": "01-v02-focused-detail.html",
+  "handoffs": {
+    "01-v02-focused-detail.html": {
+      "status": "implemented",
+      "queued": false,
+      "sentAt": "2026-11-05T14:14:37.893Z",
+      "startedAt": "2026-11-05T14:15:23.906Z",
+      "implementedAt": "2026-11-05T14:33:44.478Z",
+      "feature": "odd/tasks/gentle-shell-pr.md",
+      "note": "v0.2 shipped in the feature branch: compact clickable rail plus Overview, Checks, and metadata-only Files inspector. 30 tests pass; npm pack dry-run timed out."
+    }
+  }
+}

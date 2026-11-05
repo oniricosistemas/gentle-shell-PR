@@ -70,6 +70,18 @@ Each entry contains:
 
 The visible panel remains intentionally small. It does not display diffs, logs, issue bodies, or post-merge deployment timelines.
 
+### PR Inspector
+
+Click a pull request title in the sidebar or run `/pr-focus` to open a focused, capturing inspector. It loads detailed metadata only while the inspector is opened and returns focus to the editor when closed with `Esc`.
+
+The v0.2 inspector contains three tabs:
+
+- **Overview** — branches, review and merge state, author, labels, description, and change totals;
+- **Checks** — individual checks classified as passed, failed, or pending;
+- **Files** — changed paths and addition/deletion totals only.
+
+Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `j`/`k` to scroll, `o` to open GitHub, and `Esc` to close the inspector.
+
 ## Commands
 
 | Command | Action |
@@ -77,6 +89,7 @@ The visible panel remains intentionally small. It does not display diffs, logs, 
 | `/pr-refresh` | Refresh pull request data immediately. |
 | `/pr-sidebar` | Show or hide the sidebar. |
 | `/pr-sidebar-collapse` | Collapse or expand the panel. |
+| `/pr-focus` | Open the current branch pull request in the focused inspector. |
 | `/pr-open` | Open the current branch pull request in the browser. |
 
 When visible, the extension refreshes every 60 seconds. Hiding it pauses automatic refreshes until it is shown again.
@@ -104,7 +117,13 @@ git branch --show-current
 gh pr list --state open --json ...
 ```
 
-`/pr-open` runs `gh pr view --web` to open the selected pull request. The extension does not create, edit, review, merge, or close pull requests.
+Opening the inspector performs one additional bounded metadata read:
+
+```text
+gh pr view <number> --repo <owner/repository> --json ...
+```
+
+The request includes pull request facts, check results, and changed-file metadata, but never patch or diff fields. `/pr-open` and `o` run `gh pr view --web` to open the selected pull request. The extension does not create, edit, review, merge, or close pull requests.
 
 ## Host compatibility
 
@@ -126,9 +145,10 @@ The implementation is dependency-free. Pi provides the coding-agent and TUI pack
 | --- | --- |
 | `extensions/pr-sidebar.js` | Pi package entry point. |
 | `src/github.js` | Read-only Git and GitHub collection and normalization. |
-| `src/sidebar.js` | Theme-aware panel and shared Gentle Shell rail adapter. |
-| `src/extension.js` | Session lifecycle, refresh timer, commands, and cleanup. |
-| `test/` | Collector, rendering, rail coexistence, and lifecycle tests. |
+| `src/sidebar.js` | Theme-aware panel, title hit regions, and shared Gentle Shell rail adapter. |
+| `src/inspector.js` | Focused Overview, Checks, and Files inspector component. |
+| `src/extension.js` | Session lifecycle, lazy detail loading, commands, and cleanup. |
+| `test/` | Collector, inspector, rendering, rail coexistence, and lifecycle tests. |
 
 ## Project memory
 

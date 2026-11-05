@@ -22,6 +22,18 @@ const FAILED_CONCLUSIONS = new Set([
   "STALE",
   "TIMED_OUT",
 ]);
+const ANSI_PATTERN = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))/g;
+const UNSAFE_TERMINAL_CONTROLS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+export function cleanExternalText(value) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(ANSI_PATTERN, "")
+    .replace(UNSAFE_TERMINAL_CONTROLS, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 export function parseGitHubRemote(remote) {
   if (typeof remote !== "string") return undefined;
@@ -73,10 +85,10 @@ function normalizeChecks(rollup) {
 export function normalizePullRequest(pr) {
   return {
     number: Number(pr.number),
-    title: typeof pr.title === "string" ? pr.title : "Untitled pull request",
+    title: cleanExternalText(pr.title) || "Untitled pull request",
     url: typeof pr.url === "string" ? pr.url : "",
-    headBranch: typeof pr.headRefName === "string" ? pr.headRefName : "unknown",
-    baseBranch: typeof pr.baseRefName === "string" ? pr.baseRefName : "unknown",
+    headBranch: cleanExternalText(pr.headRefName) || "unknown",
+    baseBranch: cleanExternalText(pr.baseRefName) || "unknown",
     isDraft: pr.isDraft === true,
     review: normalizeReview(pr.reviewDecision),
     merge: normalizeMerge(pr.mergeStateStatus),

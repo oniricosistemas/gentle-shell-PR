@@ -16,7 +16,7 @@ test("parseGitHubRemote accepts HTTPS and SSH GitHub origins", () => {
 test("normalizePullRequest derives bounded CI, review, and merge facts", () => {
   const normalized = normalizePullRequest({
     number: 42,
-    title: "Add PR sidebar",
+    title: "\u001b[31mAdd PR sidebar\u001b[0m\u202e",
     url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
     headRefName: "feat/sidebar",
     baseRefName: "main",

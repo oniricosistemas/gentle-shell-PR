@@ -1,0 +1,46 @@
+{
+  "name": "gentle-shell-pr",
+  "version": "0.1.0",
+  "description": "A compact, read-only pull request sidebar for Gentle Shell and Pi.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Onírico Sistemas",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oniricosistemas/gentle-shell-PR.git"
+  },
+  "homepage": "https://github.com/oniricosistemas/gentle-shell-PR#readme",
+  "bugs": {
+    "url": "https://github.com/oniricosistemas/gentle-shell-PR/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "gentle-shell",
+    "pull-request",
+    "github",
+    "sidebar"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/pr-sidebar.js"
+    ]
+  },
+  "files": [
+    "extensions",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check extensions/pr-sidebar.js && node --check src/*.js && node --test",
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

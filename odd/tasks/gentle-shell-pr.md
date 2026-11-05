@@ -1,0 +1,29 @@
+# gentle-shell-PR
+Public Gentle Shell extension providing a compact, read-only pull-request sidebar for the active repository.
+Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
+
+## Specs
+
+1. **S1** — "crea el repo en github en https://github.com/oniricosistemas"
+2. **S2** — "Add the gentle-shell-package topic to a public Shell resource repository, or gentle-hub-project to any public community project. Discovery is eventual once configured; no publishing schedule is currently promised."
+3. **S3** — "Resource subtype topics are optional: gentle-shell-extension, gentle-shell-theme, gentle-shell-skill, and gentle-shell-prompt. Without one, your listing appears as Resource; no subtype is guessed."
+4. **S4** — "enrola el proyecto para que se sincronice con engram cloud"
+5. **S5** — "el sidebar debe tomar los colores del theme que este seleccionado"
+6. **S6** — "no quiero algo tan complicado, que quede todo en un sidebar nomas"
+7. **S7** — "sería posible hacer un sidebar que haga lo mismo"
+8. **S8** — "ok, vamos con eso entonces"
+9. **S9** — "gentle-shell-PR"
+
+## Tasks
+
+- [ ] **T1** — S1, S2, S3, S9 — Route: parent — Scaffold the public Gentle Shell extension repository and package metadata. Commit: pending.
+- [ ] **T2** — S6, S7, S8 — Route: parent — Implement and test the bounded read-only GitHub PR state collector. Commit: pending.
+- [ ] **T3** — S5, S6, S7, S8 — Route: parent — Implement and test the compact theme-aware Gentle Shell sidebar and lifecycle. Commit: pending.
+- [ ] **T4** — S4 — Route: parent — Enroll the project for Engram Cloud synchronization and record reproducible configuration. Commit: pending.
+- [ ] **T5** — S1, S2, S3, S9 — Route: parent — Publish the repository, apply discovery topics, and verify public metadata. Commit: pending.
+- [ ] **T6** — S1-S9 — Route: parent — Run package, test, installation, and repository verification; document the verified usage path. Commit: pending.
+
+## Log
+
+- **L1** — "ok, vamos con eso entonces:\n1- crea el repo en github en https://github.com/oniricosistemas\npara que figure en el hub de la web gentlemanprogramming pide esto:\nAdd the gentle-shell-package topic to a public Shell resource repository, or gentle-hub-project to any public community project. Discovery is eventual once configured; no publishing schedule is currently promised.\n\nResource subtype topics are optional: gentle-shell-extension, gentle-shell-theme, gentle-shell-skill, and gentle-shell-prompt. Without one, your listing appears as Resource; no subtype is guessed.\n\n2- enrola el proyecto para que se sincronice con engram cloud\n3- el sidebar debe tomar los colores del theme que este seleccionado"
+- **L2** — Repository/package choice: "gentle-shell-PR".

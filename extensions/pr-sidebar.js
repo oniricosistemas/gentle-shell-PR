@@ -1,3 +1,1 @@
-export default function gentleShellPrExtension() {
-  // Runtime behavior is added in the next work unit.
-}
+export { default } from "../src/extension.js";

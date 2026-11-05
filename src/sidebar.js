@@ -1,3 +1,5 @@
+import { cleanExternalText } from "./github.js";
+
 export const GENTLE_SHELL_SIDEBAR_STATE = Symbol.for("gentle-pi.experimental-sidebar.state");
 const SHARED_RAIL_STACK = Symbol.for("mcp-sidebar.gentle-shell-rail-stack");
 const ANSI_PATTERN = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))/g;
@@ -87,8 +89,9 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
     const lines = [top];
     if (collapsed) return [...lines, bottom];
 
-    const repository = state.repository ?? "No GitHub repository";
-    const branch = state.branch ? ` · ${state.branch}` : "";
+    const repository = cleanExternalText(state.repository) || "No GitHub repository";
+    const currentBranch = cleanExternalText(state.branch);
+    const branch = currentBranch ? ` · ${currentBranch}` : "";
     lines.push(row(healthToken(state), `${repository}${branch}`));
 
     if (state.error) {
@@ -103,7 +106,9 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
 
     for (const pr of state.pullRequests.slice(0, 3)) {
       lines.push(row("text", `#${pr.number} ${pr.title}`, true));
-      lines.push(row("muted", `${pr.headBranch} → ${pr.baseBranch}${pr.isDraft ? " · Draft" : ""}`));
+      const headBranch = cleanExternalText(pr.headBranch) || "unknown";
+      const baseBranch = cleanExternalText(pr.baseBranch) || "unknown";
+      lines.push(row("muted", `${headBranch} → ${baseBranch}${pr.isDraft ? " · Draft" : ""}`));
       const checks = checksLine(pr.checks);
       lines.push(row(checks.token, checks.text));
       lines.push(row(factsToken(pr), `${reviewLabel(pr.review)} · ${mergeLabel(pr.merge)}`));

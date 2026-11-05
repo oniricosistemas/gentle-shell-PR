@@ -25,7 +25,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T5** — S1, S2, S3, S9 — Route: parent — Publish the repository, apply discovery topics, and verify public metadata. Commit: `abe72cb` (first public push).
 - [x] **T6** — S1-S9 — Route: parent — Run package, test, installation, and repository verification; document the verified usage path. Commit: `4aea7f1`.
 - [x] **T7** — S7, S8 — Route: parent — Sanitize GitHub-controlled text before terminal rendering. Commits: `578d11a`, `9f00a70`, `e814129`.
-- [ ] **T8** — S10, S11 — Route: parent — Document extension updates and Gentle AI attribution. Commit: pending.
+- [x] **T8** — S10, S11 — Route: parent — Document extension updates and Gentle AI attribution. Commit: `0ecfa3a`.
 
 ## Log
 

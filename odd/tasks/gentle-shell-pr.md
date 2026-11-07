@@ -15,6 +15,8 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 9. **S9** — "gentle-shell-PR"
 10. **S10** — "agregar al readme los comandos para actualizar la extension (o como se hace con una nueva version, teniendo instalda una ya)"
 11. **S11** — "agregar al final de todo la imagen https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png haciendo referencia a que se realizo con gentle-ai"
+12. **S12** — "para no sobrecargar el sidebar, con convendria que al hacer click sobre el nombre del PR se abra una ventana con toda la información, en vez de mostrarla toda en el sidebar, hasta podriamos hacer como pestañas para lo que va a mostrar cada una de las versiones"
+13. **S13** — "yo sacaria lo del diff gentle-shell ya trae uno. Vamos con el primer upgrade"
 
 ## Tasks
 
@@ -26,6 +28,10 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T6** — S1-S9 — Route: parent — Run package, test, installation, and repository verification; document the verified usage path. Commit: `4aea7f1`.
 - [x] **T7** — S7, S8 — Route: parent — Sanitize GitHub-controlled text before terminal rendering. Commits: `578d11a`, `9f00a70`, `e814129`.
 - [x] **T8** — S10, S11 — Route: parent — Document extension updates and Gentle AI attribution. Commit: `0ecfa3a`.
+- [x] **T9** — S12, S13 — Route: worker — Add and test bounded read-only PR detail collection for Overview, Checks, and Files metadata. Commit: `1d6376f`.
+- [x] **T10** — S12, S13 — Route: parent — Implement the theme-aware focused PR inspector with Overview, Checks, and Files tabs, without a diff viewer. Commit: `e2cf493`.
+- [x] **T11** — S12, S13 — Route: parent — Open the inspector from PR title click and `/pr-focus`, preserving `/pr-open` and sidebar behavior. Commit: `8a5c88a`.
+- [x] **T12** — S12, S13 — Route: parent — Update usage documentation, complete the design handoff, and verify the first upgrade. Commit: `1bea325`.
 
 ## Log
 
@@ -39,3 +45,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L8** — Independent verification found and reproduced two correction blockers: greedy OSC stripping removed visible text, and sanitizing stored branch identity broke current-PR selection. The correction now preserves raw identity for comparisons, sanitizes only presentation, preserves visible OSC-separated text, and passes 17 tests plus independent verification.
 - **L9** — "ok un par de detalles...\n1- agregar al readme los comandos para actualizar la extension (o como se hace con una nueva version, teniendo instalda una ya)\n2- agregar al final de todo la imagen https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png haciendo referencia a que se realizo con gentle-ai"
 - **L10** — Design exploration created under `design/pr-sidebar-roadmap/` with four roadmap alternatives: `01-v02-focused-detail.html`, `02-v03-review-context.html`, `03-v04-merge-timeline.html`, and `04-v05-command-center.html`. No implementation artboard has been chosen.
+- **L11** — "una duda, para no sobrecargar el sidebar, con convendria que al hacer click sobre el nombre del PR se abra una ventana con toda la información, en vez de mostrarla toda en el sidebar, hasta podriamos hacer como pestañas para lo que va a mostrar cada una de las versiones, que te parece?"
+- **L12** — "ok, yo sacaria lo del diff gentle-shell ya trae uno. Vamos con el primer upgrade"
+- **L13** — Implementation handoff selected `design/pr-sidebar-roadmap/01-v02-focused-detail.html`; the other roadmap artboards remain alternatives. The production inspector omits a diff viewer and uses Files only for metadata/listing because Gentle Shell already provides diff viewing.
+- **L14** — v0.2 verification: `npm run check` passed all 30 tests; the selected HTML artboard parsed successfully; `git diff --check` passed. The initial `npm run pack:check` attempt timed out after 30 seconds without output; a bounded retry completed successfully in 1 second and verified the `gentle-shell-pr@0.2.0` dry-run tarball with 8 files, a 13.1 kB package size, and a 45.7 kB unpacked size.

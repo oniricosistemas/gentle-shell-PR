@@ -1,12 +1,12 @@
 {
   "title": "gentle-shell-PR roadmap",
-  "brief": "Four progressive sidebar mockups showing how gentle-shell-PR could evolve from focused pull request detail to a multi-repository operational command center.",
+  "brief": "A compact pull request rail paired with progressive read-only inspector tabs, growing from focused metadata to broader review and operational context.",
   "feature": "odd/tasks/gentle-shell-pr.md",
   "artboards": [
     {
       "file": "01-v02-focused-detail.html",
       "title": "v0.2 · Focused PR detail",
-      "tradeoff": "Adds useful depth and keyboard focus while preserving the compact rail.",
+      "tradeoff": "Adds Overview, Checks, and metadata-only Files tabs while preserving the compact rail and Gentle Shell's existing diff workflow.",
       "width": 1440,
       "height": 900
     },

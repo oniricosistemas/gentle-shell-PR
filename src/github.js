@@ -97,6 +97,90 @@ export function normalizePullRequest(pr) {
   };
 }
 
+const PR_DETAIL_FIELDS = [
+  "number", "title", "url", "body", "author", "labels", "headRefName", "baseRefName",
+  "isDraft", "reviewDecision", "mergeStateStatus", "state", "additions", "deletions",
+  "changedFiles", "createdAt", "updatedAt", "closedAt", "mergedAt", "statusCheckRollup", "files",
+].join(",");
+
+function detailText(value, limit = 500) {
+  return cleanExternalText(value).slice(0, limit);
+}
+
+function detailCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function detailRows(value, limit) {
+  return Array.isArray(value)
+    ? value.filter(row => row && typeof row === "object" && !Array.isArray(row)).slice(0, limit)
+    : [];
+}
+
+/** Read-only inspector metadata. No patch or diff fields are requested or retained. */
+export async function collectPullRequestDetail({ cwd, repository, number, execute = executeFile }) {
+  const unavailable = (error) => ({ repository, pullRequest: undefined, error });
+  let result;
+  try {
+    result = await execute("gh", [
+      "pr", "view", String(number), "--repo", repository, "--json", PR_DETAIL_FIELDS,
+    ], { cwd, timeoutMs: 15_000 });
+  } catch {
+    return unavailable("Could not load pull request details");
+  }
+  if (result.exitCode !== 0) return unavailable("Could not load pull request details");
+
+  let payload;
+  try {
+    payload = JSON.parse(result.stdout);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid detail");
+  } catch {
+    return unavailable("GitHub returned invalid pull request detail data");
+  }
+
+  // Reuse sidebar normalization so review, merge and check semantics cannot drift.
+  const overview = normalizePullRequest(payload);
+  const timestamp = value => typeof value === "string" ? detailText(value, 100) : undefined;
+  return {
+    repository,
+    error: undefined,
+    pullRequest: {
+      number: detailCount(payload.number),
+      title: detailText(overview.title),
+      url: detailText(payload.url, 2000),
+      bodySummary: detailText(payload.body, 4000),
+      author: detailText(payload.author?.login),
+      labels: detailRows(payload.labels, 100).map(label => detailText(label.name)),
+      // Identity-bearing values stay raw; renderers must sanitize them for display.
+      headBranch: overview.headBranch,
+      baseBranch: overview.baseBranch,
+      isDraft: overview.isDraft,
+      review: overview.review,
+      merge: overview.merge,
+      state: detailText(payload.state),
+      additions: detailCount(payload.additions),
+      deletions: detailCount(payload.deletions),
+      changedFiles: detailCount(payload.changedFiles),
+      createdAt: timestamp(payload.createdAt),
+      updatedAt: timestamp(payload.updatedAt),
+      closedAt: timestamp(payload.closedAt),
+      mergedAt: timestamp(payload.mergedAt),
+      checks: detailRows(payload.statusCheckRollup, 100).map(row => {
+        const counts = normalizeChecks([row]);
+        return {
+          name: detailText(row.name || row.context) || "Unnamed check",
+          status: counts.failed ? "failed" : counts.passed ? "passed" : "pending",
+        };
+      }),
+      files: detailRows(payload.files, 300).map(file => ({
+        path: detailText(file.path, 2000),
+        additions: detailCount(file.additions),
+        deletions: detailCount(file.deletions),
+      })),
+    },
+  };
+}
+
 export function executeFile(command, args, options = {}) {
   return new Promise((resolve) => {
     execFile(command, args, {

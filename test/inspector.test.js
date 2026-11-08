@@ -124,23 +124,24 @@ test("the inspector closes with Escape and opens GitHub with o", () => {
   assert.deepEqual(events, ["open:42", "close"]);
 });
 
-test("the inspector closes with the configured cancel key sequence", () => {
+test("the inspector prioritizes the configured cancel binding over local shortcuts", () => {
   const events = [];
   const inspector = createPullRequestInspector({
     tui: { requestRender() {} },
     theme: createTheme(),
     keybindings: {
       matches(data, action) {
-        return action === "tui.select.cancel" && data === "\u001b[27u";
+        return action === "tui.select.cancel" && data === "\t";
       },
     },
     initialState: detail,
     onClose: () => events.push("close"),
   });
 
-  inspector.handleInput("\u001b[27u");
+  inspector.handleInput("\t");
 
   assert.deepEqual(events, ["close"]);
+  assert.equal(inspector.getActiveTab(), "Overview");
 });
 
 test("the inspector closes when the Esc footer action is clicked", () => {

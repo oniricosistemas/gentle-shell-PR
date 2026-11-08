@@ -208,6 +208,10 @@ export function createPullRequestInspector({ tui, theme, keybindings, initialSta
     getActiveTab: () => TABS[activeTabIndex],
     handleInput(data) {
       const cancel = keybindings?.matches?.(data, "tui.select.cancel") === true;
+      if (cancel || data === "\u001b" || data === "\u0003") {
+        onClose?.();
+        return;
+      }
       if (data === "\u001b[C" || data === "\t") {
         changeTab(1);
       } else if (data === "\u001b[D") {
@@ -224,8 +228,6 @@ export function createPullRequestInspector({ tui, theme, keybindings, initialSta
         activeTabIndex = Number(data) - 1;
         scrollOffset = 0;
         requestRender();
-      } else if (cancel || data === "\u001b" || data === "\u0003") {
-        onClose?.();
       }
     },
     handleMouse(event) {

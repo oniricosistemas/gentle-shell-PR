@@ -92,11 +92,12 @@ export function createPrSidebarExtension(dependencies = {}) {
         state: { repository: current.state.repository, pullRequest: undefined, error: undefined, loading: true },
       };
       current.inspectorSession = session;
-      const inspectorPromise = context.ui.custom((tui, theme, _keybindings, done) => {
+      const inspectorPromise = context.ui.custom((tui, theme, keybindings, done) => {
         session.finish = () => done(undefined);
         session.component = createPullRequestInspector({
           tui,
           theme,
+          keybindings,
           initialState: session.state,
           onClose: session.finish,
           onOpenGitHub: (candidate) => { void openInGitHub(current, candidate, context); },

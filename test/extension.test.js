@@ -27,6 +27,11 @@ function createHarness() {
     },
     bold: (text) => text,
   };
+  const keybindings = {
+    matches(data, action) {
+      return action === "tui.select.cancel" && ["\u001b", "\u001b[27u", "\u0003"].includes(data);
+    },
+  };
   const customs = [];
   const ui = {
     customs,
@@ -38,7 +43,7 @@ function createHarness() {
         entry.closed = true;
         resolveCustom();
       };
-      const component = factory(tui, theme, {}, done);
+      const component = factory(tui, theme, keybindings, done);
       entry.component = component;
       customs.push(entry);
       this.component = component;
@@ -145,7 +150,7 @@ test("pr-focus opens a capturing inspector and loads Overview, Checks and Files 
   assert.equal(inspector.options.overlayOptions.maxHeight, "85%");
   assert.notEqual(inspector.options.overlayOptions.nonCapturing, true);
   assert.match(inspector.component.render(96).join("\n"), /Focused detail/);
-  inspector.component.handleInput("\u001b");
+  inspector.component.handleInput("\u001b[27u");
   await inspector.promise;
   assert.equal(inspector.closed, true);
 });

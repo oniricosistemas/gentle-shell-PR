@@ -61,10 +61,11 @@ function checkIcon(status) {
   return "◷";
 }
 
-export function createPullRequestInspector({ tui, theme, initialState, onClose, onOpenGitHub }) {
+export function createPullRequestInspector({ tui, theme, keybindings, initialState, onClose, onOpenGitHub }) {
   let state = initialState;
   let activeTabIndex = 0;
   let scrollOffset = 0;
+  let closeHitRegion;
 
   const paint = (token, text, bold = false) => {
     const emphasized = bold && typeof theme.bold === "function" ? theme.bold(text) : text;
@@ -169,7 +170,14 @@ export function createPullRequestInspector({ tui, theme, initialState, onClose, 
     }
 
     lines.push(row("border", "─".repeat(innerWidth)));
-    lines.push(row("muted", "←/→ or Tab tabs · j/k scroll · o GitHub · Esc close"));
+    const footerText = "←/→ or Tab tabs · j/k scroll · o GitHub · Esc close";
+    const visibleFooter = truncateText(footerText, innerWidth);
+    const closeLabel = "Esc close";
+    const closeLabelColumn = visibleFooter.indexOf(closeLabel);
+    closeHitRegion = closeLabelColumn >= 0
+      ? { y: lines.length, startX: closeLabelColumn + 2, endX: closeLabelColumn + 2 + closeLabel.length }
+      : undefined;
+    lines.push(row("muted", footerText));
     lines.push(bottom);
     return lines;
   };
@@ -199,6 +207,11 @@ export function createPullRequestInspector({ tui, theme, initialState, onClose, 
     },
     getActiveTab: () => TABS[activeTabIndex],
     handleInput(data) {
+      const cancel = keybindings?.matches?.(data, "tui.select.cancel") === true;
+      if (cancel || data === "\u001b" || data === "\u0003") {
+        onClose?.();
+        return;
+      }
       if (data === "\u001b[C" || data === "\t") {
         changeTab(1);
       } else if (data === "\u001b[D") {
@@ -215,9 +228,13 @@ export function createPullRequestInspector({ tui, theme, initialState, onClose, 
         activeTabIndex = Number(data) - 1;
         scrollOffset = 0;
         requestRender();
-      } else if (data === "\u001b" || data === "\u0003") {
-        onClose?.();
       }
+    },
+    handleMouse(event) {
+      if (event?.type !== "click" || event.button !== "left" || !closeHitRegion) return undefined;
+      if (event.y !== closeHitRegion.y || event.x < closeHitRegion.startX || event.x >= closeHitRegion.endX) return undefined;
+      onClose?.();
+      return { handled: true, render: false };
     },
   };
 }

@@ -124,6 +124,43 @@ test("the inspector closes with Escape and opens GitHub with o", () => {
   assert.deepEqual(events, ["open:42", "close"]);
 });
 
+test("the inspector closes with the configured cancel key sequence", () => {
+  const events = [];
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    keybindings: {
+      matches(data, action) {
+        return action === "tui.select.cancel" && data === "\u001b[27u";
+      },
+    },
+    initialState: detail,
+    onClose: () => events.push("close"),
+  });
+
+  inspector.handleInput("\u001b[27u");
+
+  assert.deepEqual(events, ["close"]);
+});
+
+test("the inspector closes when the Esc footer action is clicked", () => {
+  const events = [];
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+    onClose: () => events.push("close"),
+  });
+  const lines = inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+  const y = lines.findIndex((line) => line.includes("Esc close"));
+  const x = lines[y].indexOf("Esc close");
+
+  const result = inspector.handleMouse?.({ type: "click", button: "left", x, y });
+
+  assert.deepEqual(events, ["close"]);
+  assert.deepEqual(result, { handled: true, render: false });
+});
+
 test("the inspector renders bounded loading and error states", () => {
   const inspector = createPullRequestInspector({
     tui: { requestRender() {} },

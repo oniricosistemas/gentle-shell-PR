@@ -105,6 +105,33 @@ test("the inspector renders the PR description with the injected Markdown render
   assert.doesNotMatch(output, /##|\*\*Done\*\*/);
 });
 
+test("the inspector reports a Markdown renderer failure once and falls back to plain text", () => {
+  const errors = [];
+  const failure = new Error("renderer failed");
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    renderMarkdown() {
+      throw failure;
+    },
+    onMarkdownError(error) {
+      errors.push(error);
+    },
+    initialState: {
+      ...detail,
+      pullRequest: { ...detail.pullRequest, bodySummary: "## Summary\n\n- **Done**" },
+    },
+  });
+
+  const firstOutput = plain(inspector.render(96));
+  const secondOutput = plain(inspector.render(96));
+
+  assert.match(firstOutput, /## Summary/);
+  assert.match(firstOutput, /- \*\*Done\*\*/);
+  assert.match(secondOutput, /## Summary/);
+  assert.deepEqual(errors, [failure]);
+});
+
 test("the inspector switches between Checks and Files tabs with keyboard input", () => {
   const renders = [];
   const inspector = createPullRequestInspector({

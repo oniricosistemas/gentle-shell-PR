@@ -61,11 +61,12 @@ function checkIcon(status) {
   return "◷";
 }
 
-export function createPullRequestInspector({ tui, theme, keybindings, renderMarkdown, initialState, onClose, onOpenGitHub }) {
+export function createPullRequestInspector({ tui, theme, keybindings, renderMarkdown, onMarkdownError, initialState, onClose, onOpenGitHub }) {
   let state = initialState;
   let activeTabIndex = 0;
   let scrollOffset = 0;
   let closeHitRegion;
+  let markdownErrorReported = false;
 
   const paint = (token, text, bold = false) => {
     const emphasized = bold && typeof theme.bold === "function" ? theme.bold(text) : text;
@@ -86,8 +87,12 @@ export function createPullRequestInspector({ tui, theme, keybindings, renderMark
       try {
         body = renderMarkdown(bodyMarkdown, width);
         bodyIsStyled = Array.isArray(body);
-      } catch {
+      } catch (error) {
         body = undefined;
+        if (!markdownErrorReported && typeof onMarkdownError === "function") {
+          markdownErrorReported = true;
+          onMarkdownError(error);
+        }
       }
     }
     if (!bodyIsStyled) body = wrapText(bodyMarkdown, width);

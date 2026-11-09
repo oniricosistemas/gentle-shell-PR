@@ -156,6 +156,47 @@ test("pr-focus opens a capturing inspector and loads Overview, Checks and Files 
   assert.equal(inspector.closed, true);
 });
 
+test("the extension warns once when Markdown rendering fails and keeps the inspector usable", async () => {
+  const harness = createHarness();
+  const focusedResult = {
+    repository: "oniricosistemas/gentle-shell-PR",
+    branch: "feat/sidebar",
+    pullRequests: [{
+      number: 42, title: "Add PR sidebar", url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
+      headBranch: "feat/sidebar", baseBranch: "main", isDraft: false, review: "approved", merge: "ready",
+      checks: { passed: 1, failed: 0, pending: 0, total: 1 }, updatedAt: "2026-11-05T12:00:00Z",
+    }],
+    error: undefined,
+  };
+  createPrSidebarExtension({
+    collect: async () => focusedResult,
+    collectDetail: async () => ({
+      repository: focusedResult.repository,
+      error: undefined,
+      pullRequest: {
+        ...focusedResult.pullRequests[0], bodySummary: "## Focused detail", author: "octocat", labels: [],
+        state: "OPEN", additions: 10, deletions: 2, changedFiles: 1, checks: [], files: [],
+      },
+    }),
+    renderMarkdown() {
+      throw new Error("renderer failed");
+    },
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  })(harness.pi);
+
+  await harness.handlers.get("session_start")({}, harness.context);
+  await harness.commands.get("pr-focus").handler("", harness.context);
+  const inspector = harness.ui.customs[1].component;
+
+  assert.match(inspector.render(96).join("\n"), /## Focused detail/);
+  inspector.render(96);
+  assert.deepEqual(harness.notifications, [{
+    message: "Pull request Markdown rendering unavailable; showing plain text",
+    level: "warning",
+  }]);
+});
+
 test("the extension stays inactive outside interactive TUI mode", async () => {
   const harness = createHarness();
   harness.context.mode = "rpc";

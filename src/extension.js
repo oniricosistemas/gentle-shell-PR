@@ -100,6 +100,11 @@ export function createPrSidebarExtension(dependencies = {}) {
           theme,
           keybindings,
           renderMarkdown,
+          onMarkdownError: () => {
+            if (active === current) {
+              context.ui.notify("Pull request Markdown rendering unavailable; showing plain text", "warning");
+            }
+          },
           initialState: session.state,
           onClose: session.finish,
           onOpenGitHub: (candidate) => { void openInGitHub(current, candidate, context); },

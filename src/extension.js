@@ -17,6 +17,7 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const execute = dependencies.execute ?? executeFile;
+  const renderMarkdown = dependencies.renderMarkdown;
   const setIntervalFn = dependencies.setIntervalFn ?? setInterval;
   const clearIntervalFn = dependencies.clearIntervalFn ?? clearInterval;
 
@@ -98,6 +99,12 @@ export function createPrSidebarExtension(dependencies = {}) {
           tui,
           theme,
           keybindings,
+          renderMarkdown,
+          onMarkdownError: () => {
+            if (active === current) {
+              context.ui.notify("Pull request Markdown rendering unavailable; showing plain text", "warning");
+            }
+          },
           initialState: session.state,
           onClose: session.finish,
           onOpenGitHub: (candidate) => { void openInGitHub(current, candidate, context); },

@@ -76,7 +76,7 @@ Click a pull request title in the sidebar or run `/pr-focus` to open a focused, 
 
 The v0.2 inspector contains three tabs:
 
-- **Overview** — branches, review and merge state, author, labels, description, and change totals;
+- **Overview** — branches, review and merge state, author, labels, a theme-aware Markdown description, and change totals;
 - **Checks** — individual checks classified as passed, failed, or pending;
 - **Files** — changed paths and addition/deletion totals only.
 

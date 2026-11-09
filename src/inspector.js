@@ -61,7 +61,7 @@ function checkIcon(status) {
   return "◷";
 }
 
-export function createPullRequestInspector({ tui, theme, keybindings, initialState, onClose, onOpenGitHub }) {
+export function createPullRequestInspector({ tui, theme, keybindings, renderMarkdown, initialState, onClose, onOpenGitHub }) {
   let state = initialState;
   let activeTabIndex = 0;
   let scrollOffset = 0;
@@ -79,7 +79,18 @@ export function createPullRequestInspector({ tui, theme, keybindings, initialSta
     const base = cleanExternalText(pr.baseBranch) || "unknown";
     const labels = pr.labels?.length ? pr.labels.map(cleanExternalText).filter(Boolean).join(" · ") : "No labels";
     const author = cleanExternalText(pr.author) || "unknown";
-    const body = wrapText(pr.bodySummary || "No description provided.", width);
+    const bodyMarkdown = pr.bodySummary || "No description provided.";
+    let body;
+    let bodyIsStyled = false;
+    if (typeof renderMarkdown === "function") {
+      try {
+        body = renderMarkdown(bodyMarkdown, width);
+        bodyIsStyled = Array.isArray(body);
+      } catch {
+        body = undefined;
+      }
+    }
+    if (!bodyIsStyled) body = wrapText(bodyMarkdown, width);
     return [
       { token: "accent", text: `${head} → ${base}` },
       { token: pr.merge === "ready" && pr.review === "approved" ? "success" : "text", text: `${reviewLabel(pr.review)} · ${mergeLabel(pr.merge)}` },
@@ -87,7 +98,7 @@ export function createPullRequestInspector({ tui, theme, keybindings, initialSta
       { token: "muted", text: `${pr.changedFiles} files · +${pr.additions} −${pr.deletions}` },
       { token: "muted", text: "" },
       { token: "text", text: "Description", bold: true },
-      ...body.map((text) => ({ token: "muted", text })),
+      ...body.map((text) => ({ token: "muted", text, styled: bodyIsStyled })),
     ];
   };
 
@@ -130,10 +141,11 @@ export function createPullRequestInspector({ tui, theme, keybindings, initialSta
     const boundedWidth = Math.max(24, Math.floor(width));
     const innerWidth = boundedWidth - 4;
     const border = (text) => paint("border", text);
-    const row = (token, text = "", bold = false) => {
-      const bounded = truncateText(text, innerWidth);
+    const row = (token, text = "", bold = false, styled = false) => {
+      const bounded = visibleWidth(text) <= innerWidth ? text : truncateText(text, innerWidth);
       const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(bounded)));
-      return border("│ ") + paint(token, `${bounded}${padding}`, bold) + border(" │");
+      const content = styled ? `${bounded}${padding}` : paint(token, `${bounded}${padding}`, bold);
+      return border("│ ") + content + border(" │");
     };
     const topTitle = state.pullRequest
       ? `PR #${state.pullRequest.number} · ${state.pullRequest.title}`
@@ -159,7 +171,7 @@ export function createPullRequestInspector({ tui, theme, keybindings, initialSta
       const maxOffset = Math.max(0, content.length - maxVisible);
       scrollOffset = Math.min(scrollOffset, maxOffset);
       for (const line of content.slice(scrollOffset, scrollOffset + maxVisible)) {
-        lines.push(row(line.token, line.text, line.bold));
+        lines.push(row(line.token, line.text, line.bold, line.styled));
       }
       while (lines.length < 3 + Math.min(maxVisible, Math.max(1, content.length))) {
         lines.push(row("muted", ""));

@@ -82,6 +82,29 @@ test("the inspector renders a theme-aware Overview without a diff viewer", () =>
   }
 });
 
+test("the inspector renders the PR description with the injected Markdown renderer", () => {
+  const calls = [];
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    renderMarkdown(markdown, width) {
+      calls.push({ markdown, width });
+      return ["\u001b[1mSummary\u001b[22m", "• Done"];
+    },
+    initialState: {
+      ...detail,
+      pullRequest: { ...detail.pullRequest, bodySummary: "## Summary\n\n- **Done**" },
+    },
+  });
+
+  const output = plain(inspector.render(96));
+
+  assert.deepEqual(calls, [{ markdown: "## Summary\n\n- **Done**", width: 92 }]);
+  assert.match(output, /Summary/);
+  assert.match(output, /• Done/);
+  assert.doesNotMatch(output, /##|\*\*Done\*\*/);
+});
+
 test("the inspector switches between Checks and Files tabs with keyboard input", () => {
   const renders = [];
   const inspector = createPullRequestInspector({

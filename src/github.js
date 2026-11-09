@@ -107,6 +107,20 @@ function detailText(value, limit = 500) {
   return cleanExternalText(value).slice(0, limit);
 }
 
+function detailMarkdown(value, limit = 4000) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(ANSI_PATTERN, "")
+    .replace(UNSAFE_TERMINAL_CONTROLS, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\t/g, "  ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, limit);
+}
+
 function detailCount(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
@@ -148,7 +162,7 @@ export async function collectPullRequestDetail({ cwd, repository, number, execut
       number: detailCount(payload.number),
       title: detailText(overview.title),
       url: detailText(payload.url, 2000),
-      bodySummary: detailText(payload.body, 4000),
+      bodySummary: detailMarkdown(payload.body),
       author: detailText(payload.author?.login),
       labels: detailRows(payload.labels, 100).map(label => detailText(label.name)),
       // Identity-bearing values stay raw; renderers must sanitize them for display.

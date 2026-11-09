@@ -17,6 +17,7 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const execute = dependencies.execute ?? executeFile;
+  const renderMarkdown = dependencies.renderMarkdown;
   const setIntervalFn = dependencies.setIntervalFn ?? setInterval;
   const clearIntervalFn = dependencies.clearIntervalFn ?? clearInterval;
 
@@ -98,6 +99,7 @@ export function createPrSidebarExtension(dependencies = {}) {
           tui,
           theme,
           keybindings,
+          renderMarkdown,
           initialState: session.state,
           onClose: session.finish,
           onOpenGitHub: (candidate) => { void openInGitHub(current, candidate, context); },

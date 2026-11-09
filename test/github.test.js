@@ -46,7 +46,7 @@ test("detail collector normalizes Overview, Checks and Files without patch data"
     repository: "org/repo", error: undefined,
     pullRequest: {
       number: 42, title: "Inspector", url: "https://github.com/org/repo/pull/42",
-      bodySummary: "Overview summary", author: "octocat", labels: ["feature"],
+      bodySummary: "Overview\nsummary", author: "octocat", labels: ["feature"],
       headBranch: "feat/inspector", baseBranch: "main", isDraft: true,
       review: "waiting", merge: "blocked", state: "OPEN",
       additions: 12, deletions: 3, changedFiles: 1,
@@ -58,6 +58,15 @@ test("detail collector normalizes Overview, Checks and Files without patch data"
   });
 });
 
+test("detail collector preserves safe Markdown and removes HTML comments", async () => {
+  const { pullRequest } = await collectDetail({
+    ...detailPayload,
+    body: "<!-- revix:summary:start -->\n## Summary\n\n- **Done**\n- `verified`\n<!-- revix:summary:end -->",
+  });
+
+  assert.equal(pullRequest.bodySummary, "## Summary\n\n- **Done**\n- `verified`");
+});
+
 test("detail collector sanitizes display text but preserves branch identity", async () => {
   const unsafe = "\u001b[31mvisible\u001b[0m\u202e\ntext";
   const { pullRequest } = await collectDetail({ ...detailPayload,
@@ -65,10 +74,11 @@ test("detail collector sanitizes display text but preserves branch identity", as
     headRefName: unsafe, baseRefName: unsafe,
     statusCheckRollup: [{ name: unsafe }], files: [{ path: unsafe }],
   });
-  for (const value of [pullRequest.title, pullRequest.bodySummary, pullRequest.url,
-    pullRequest.author, ...pullRequest.labels, pullRequest.checks[0].name, pullRequest.files[0].path]) {
+  for (const value of [pullRequest.title, pullRequest.url, pullRequest.author,
+    ...pullRequest.labels, pullRequest.checks[0].name, pullRequest.files[0].path]) {
     assert.equal(value, "visible text");
   }
+  assert.equal(pullRequest.bodySummary, "visible\ntext");
   assert.equal(pullRequest.headBranch, unsafe);
   assert.equal(pullRequest.baseBranch, unsafe);
 });

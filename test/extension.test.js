@@ -129,12 +129,13 @@ test("pr-focus opens a capturing inspector and loads Overview, Checks and Files 
         repository: focusedResult.repository,
         error: undefined,
         pullRequest: {
-          ...focusedResult.pullRequests[0], bodySummary: "Focused detail", author: "octocat", labels: [],
+          ...focusedResult.pullRequests[0], bodySummary: "## Focused detail", author: "octocat", labels: [],
           state: "OPEN", additions: 10, deletions: 2, changedFiles: 1, checks: [{ name: "test", status: "passed" }],
           files: [{ path: "src/extension.js", additions: 10, deletions: 2 }],
         },
       };
     },
+    renderMarkdown: () => ["Rendered Markdown detail"],
     setIntervalFn: () => 1,
     clearIntervalFn() {},
   })(harness.pi);
@@ -149,7 +150,7 @@ test("pr-focus opens a capturing inspector and loads Overview, Checks and Files 
   assert.equal(inspector.options.overlayOptions.width, "85%");
   assert.equal(inspector.options.overlayOptions.maxHeight, "85%");
   assert.notEqual(inspector.options.overlayOptions.nonCapturing, true);
-  assert.match(inspector.component.render(96).join("\n"), /Focused detail/);
+  assert.match(inspector.component.render(96).join("\n"), /Rendered Markdown detail/);
   inspector.component.handleInput("\u001b[27u");
   await inspector.promise;
   assert.equal(inspector.closed, true);

@@ -113,8 +113,9 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
       result[check.status] = (result[check.status] ?? 0) + 1;
       return result;
     }, {});
+    const feedback = pr.reviewFeedback ? " · feedback" : "";
     return [
-      { token: "text", text: `${totals.passed ?? 0} passed · ${totals.pending ?? 0} running · ${totals.failed ?? 0} failed`, bold: true },
+      { token: pr.reviewFeedback ? "warning" : "text", text: `${totals.passed ?? 0} passed · ${totals.pending ?? 0} running · ${totals.failed ?? 0} failed${feedback}`, bold: true },
       { token: "muted", text: "" },
       ...pr.checks.map((check) => ({
         token: checkToken(check.status),

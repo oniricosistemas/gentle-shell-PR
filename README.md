@@ -64,7 +64,7 @@ Each entry contains:
 - pull request number and title;
 - head and base branches;
 - draft state;
-- passed, failed, or running CI checks;
+- passed, failed, or running CI checks, with a separate feedback marker when the latest GitHub review contains comments or requests changes;
 - review decision;
 - merge readiness.
 
@@ -77,7 +77,7 @@ Click a pull request title in the sidebar or run `/pr-focus` to open a focused, 
 The v0.2 inspector contains three tabs:
 
 - **Overview** — branches, review and merge state, author, labels, a theme-aware Markdown description, and change totals;
-- **Checks** — individual checks classified as passed, failed, or pending;
+- **Checks** — individual checks classified as passed, failed, or pending; a successful run remains passed, while review feedback is called out separately in yellow;
 - **Files** — changed paths and addition/deletion totals only.
 
 Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `j`/`k` to scroll, `o` to open GitHub, and `Esc` to close the inspector.
@@ -129,7 +129,9 @@ The request includes pull request facts, check results, and changed-file metadat
 
 Gentle Shell currently exposes its fullscreen right rail through an experimental in-process compatibility contract. This extension participates in the shared footer stack so it can coexist with Status and other compatible sidebar packages. It does not replace the rail root.
 
-When that rail is unavailable, Pi uses a passive right-side overlay on terminals at least 100 columns wide. Non-interactive, JSON, print, and RPC modes do not mount terminal UI.
+The extension detects the host layout capability instead of parsing a version string: when the rail exposes `statusbar` or `header` slots (Gentle Shell 4.6+), it switches to a borderless, dense, collapsible row that fits the Integrations panel. In that mode the section defaults to a single collapsed header (`▸ Pull requests · N`) and expands to the same pull-request details on click. On older hosts without those slots, it keeps the original standalone bordered card and expanded-by-default behavior.
+
+When the rail is unavailable, Pi uses a passive right-side overlay on terminals at least 100 columns wide. Non-interactive, JSON, print, and RPC modes do not mount terminal UI.
 
 ## Development
 

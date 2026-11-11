@@ -26,15 +26,16 @@ function healthToken(state) {
   return "success";
 }
 
-function checksLine(checks) {
+function checksLine(checks, reviewFeedback = false) {
   if (!checks || checks.total === 0) return { token: "muted", text: "No CI" };
+  const feedback = reviewFeedback ? " · feedback" : "";
   if (checks.failed > 0) {
-    return { token: "error", text: `CI ${checks.passed}/${checks.total} · ${checks.failed} failed` };
+    return { token: "error", text: `CI ${checks.passed}/${checks.total} · ${checks.failed} failed${feedback}` };
   }
   if (checks.pending > 0) {
-    return { token: "warning", text: `CI ${checks.passed}/${checks.total} · ${checks.pending} running` };
+    return { token: "warning", text: `CI ${checks.passed}/${checks.total} · ${checks.pending} running${feedback}` };
   }
-  return { token: "success", text: `CI ${checks.passed}/${checks.total} passed` };
+  return { token: reviewFeedback ? "warning" : "success", text: `CI ${checks.passed}/${checks.total} passed${feedback}` };
 }
 
 function reviewLabel(review) {
@@ -52,16 +53,25 @@ function mergeLabel(merge) {
   return "Merge unknown";
 }
 
+export function detectGentleShellRailLayout(tui) {
+  const host = tui?.terminal?.[GENTLE_SHELL_SIDEBAR_STATE];
+  if (!host || !(host.parts instanceof Map)) return "legacy";
+  return host.parts.has("statusbar") || host.parts.has("header") ? "rail" : "legacy";
+}
+
 function factsToken(pr) {
   if (pr.merge === "conflicting" || pr.review === "changes_requested") return "error";
   if (pr.merge === "ready" && pr.review === "approved") return "success";
   return "muted";
 }
 
-export function createPullRequestPanel({ tui, theme, initialState, onCollapsedChange, onOpenPullRequest }) {
+export function createPullRequestPanel({ tui, theme, initialState, onCollapsedChange, onOpenPullRequest, layout }) {
   let state = initialState;
-  let collapsed = false;
+  const railMode = (layout ?? detectGentleShellRailLayout(tui)) === "rail";
+  let collapsed = railMode;
   let pullRequestTitleRows = new Map();
+
+  onCollapsedChange?.(collapsed);
 
   const paint = (token, text, bold = false) => {
     const emphasized = bold && typeof theme.bold === "function" ? theme.bold(text) : text;
@@ -74,22 +84,31 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
     if (boundedWidth === 0) return [];
     if (boundedWidth === 1) return [paint("muted", "…")];
 
-    const border = (text) => paint("border", text);
     const count = state.pullRequests?.length ?? 0;
-    const titleText = collapsed ? `▶ Pull requests · ${count}` : `▼ Pull requests · ${count}`;
-    const title = truncateText(titleText, Math.max(1, boundedWidth - 6));
-    const topFill = Math.max(0, boundedWidth - visibleWidth(title) - 5);
-    const top = border("╭─ ") + paint("accent", title, true) + border(` ${"─".repeat(topFill)}╮`);
-    const bottom = border(`╰${"─".repeat(Math.max(0, boundedWidth - 2))}╯`);
-    const contentWidth = Math.max(0, boundedWidth - 4);
+    const titleText = collapsed
+      ? (railMode ? `▸ Pull requests · ${count}` : `▶ Pull requests · ${count}`)
+      : (railMode ? `▾ Pull requests · ${count}` : `▼ Pull requests · ${count}`);
+    const contentWidth = railMode ? boundedWidth : Math.max(0, boundedWidth - 4);
     const row = (token, text, bold = false) => {
       const bounded = truncateText(text, contentWidth);
+      if (railMode) return paint(token, bounded, bold);
       const padding = " ".repeat(Math.max(0, contentWidth - visibleWidth(bounded)));
-      return border("│ ") + paint(token, `${bounded}${padding}`, bold) + border(" │");
+      return paint("border", "│ ") + paint(token, `${bounded}${padding}`, bold) + paint("border", " │");
     };
 
-    const lines = [top];
-    if (collapsed) return [...lines, bottom];
+    const lines = [];
+    if (railMode) {
+      lines.push(row("accent", titleText, true));
+      if (collapsed) return lines;
+    } else {
+      const title = truncateText(titleText, Math.max(1, boundedWidth - 6));
+      const topFill = Math.max(0, boundedWidth - visibleWidth(title) - 5);
+      lines.push(paint("border", "╭─ ") + paint("accent", title, true) + paint("border", ` ${"─".repeat(topFill)}╮`));
+      if (collapsed) {
+        lines.push(paint("border", `╰${"─".repeat(Math.max(0, boundedWidth - 2))}╯`));
+        return lines;
+      }
+    }
 
     const repository = cleanExternalText(state.repository) || "No GitHub repository";
     const currentBranch = cleanExternalText(state.branch);
@@ -98,12 +117,14 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
 
     if (state.error) {
       lines.push(row("error", state.error));
-      return [...lines, bottom];
+      if (!railMode) lines.push(paint("border", `╰${"─".repeat(Math.max(0, boundedWidth - 2))}╯`));
+      return lines;
     }
 
     if (!state.pullRequests?.length) {
       lines.push(row("muted", "No open pull requests"));
-      return [...lines, bottom];
+      if (!railMode) lines.push(paint("border", `╰${"─".repeat(Math.max(0, boundedWidth - 2))}╯`));
+      return lines;
     }
 
     for (const pr of state.pullRequests.slice(0, 3)) {
@@ -112,7 +133,7 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
       const headBranch = cleanExternalText(pr.headBranch) || "unknown";
       const baseBranch = cleanExternalText(pr.baseBranch) || "unknown";
       lines.push(row("muted", `${headBranch} → ${baseBranch}${pr.isDraft ? " · Draft" : ""}`));
-      const checks = checksLine(pr.checks);
+      const checks = checksLine(pr.checks, pr.reviewFeedback);
       lines.push(row(checks.token, checks.text));
       lines.push(row(factsToken(pr), `${reviewLabel(pr.review)} · ${mergeLabel(pr.merge)}`));
     }
@@ -121,7 +142,10 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
       lines.push(row("muted", `+${state.pullRequests.length - 3} more`));
     }
 
-    return [...lines, bottom];
+    if (!railMode) {
+      lines.push(paint("border", `╰${"─".repeat(Math.max(0, boundedWidth - 2))}╯`));
+    }
+    return lines;
   };
 
   const setCollapsed = (next) => {
@@ -208,6 +232,16 @@ function createSharedRailStack(host, original) {
       return result;
     },
   };
+  for (const property of ["surface", "summary", "open", "alert", "spend"]) {
+    if (!(property in original)) continue;
+    Object.defineProperty(stack.wrapper, property, {
+      enumerable: true,
+      get() {
+        const value = original[property];
+        return typeof value === "function" ? value.bind(original) : value;
+      },
+    });
+  }
   return stack;
 }
 

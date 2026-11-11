@@ -17,6 +17,7 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const execute = dependencies.execute ?? executeFile;
+  const matchesKey = dependencies.matchesKey;
   const renderMarkdown = dependencies.renderMarkdown;
   const setIntervalFn = dependencies.setIntervalFn ?? setInterval;
   const clearIntervalFn = dependencies.clearIntervalFn ?? clearInterval;
@@ -99,6 +100,7 @@ export function createPrSidebarExtension(dependencies = {}) {
           tui,
           theme,
           keybindings,
+          matchesKey,
           renderMarkdown,
           onMarkdownError: () => {
             if (active === current) {

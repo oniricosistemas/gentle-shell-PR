@@ -61,7 +61,7 @@ function checkIcon(status) {
   return "◷";
 }
 
-export function createPullRequestInspector({ tui, theme, keybindings, renderMarkdown, onMarkdownError, initialState, onClose, onOpenGitHub }) {
+export function createPullRequestInspector({ tui, theme, keybindings, matchesKey, renderMarkdown, onMarkdownError, initialState, onClose, onOpenGitHub }) {
   let state = initialState;
   let activeTabIndex = 0;
   let scrollOffset = 0;
@@ -239,7 +239,7 @@ export function createPullRequestInspector({ tui, theme, keybindings, renderMark
       } else if (data === "k" || data === "\u001b[A") {
         scrollOffset = Math.max(0, scrollOffset - 1);
         requestRender();
-      } else if (data === "o") {
+      } else if (data === "o" || matchesKey?.(data, "o") === true) {
         if (state.pullRequest) onOpenGitHub?.(state.pullRequest);
       } else if (data === "1" || data === "2" || data === "3") {
         activeTabIndex = Number(data) - 1;

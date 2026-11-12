@@ -64,7 +64,7 @@ Each entry contains:
 - pull request number and title;
 - head and base branches;
 - draft state;
-- passed, failed, or running CI checks;
+- passed, failed, or running CI checks, with a separate feedback marker when the latest GitHub review contains comments or requests changes;
 - review decision;
 - merge readiness.
 
@@ -77,7 +77,7 @@ Click a pull request title in the sidebar or run `/pr-focus` to open a focused, 
 The v0.2 inspector contains three tabs:
 
 - **Overview** — branches, review and merge state, author, labels, a theme-aware Markdown description, and change totals;
-- **Checks** — individual checks classified as passed, failed, or pending;
+- **Checks** — individual checks classified as passed, failed, or pending; a successful run remains passed, while review feedback is called out separately in yellow;
 - **Files** — changed paths and addition/deletion totals only.
 
 Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `j`/`k` to scroll, `o` to open GitHub, and `Esc` to close the inspector.
@@ -129,7 +129,11 @@ The request includes pull request facts, check results, and changed-file metadat
 
 Gentle Shell currently exposes its fullscreen right rail through an experimental in-process compatibility contract. This extension participates in the shared footer stack so it can coexist with Status and other compatible sidebar packages. It does not replace the rail root.
 
-When that rail is unavailable, Pi uses a passive right-side overlay on terminals at least 100 columns wide. Non-interactive, JSON, print, and RPC modes do not mount terminal UI.
+The extension detects the host layout capability instead of parsing a version string: when the rail exposes `statusbar` or `header` slots (Gentle Shell 4.6+), it switches to a borderless, dense, collapsible row that fits the Integrations panel. In that mode the section defaults to a single collapsed header (`▸ Pull requests · N`) and expands to the same pull-request details on click. On older hosts without those slots, it keeps the original standalone bordered card and expanded-by-default behavior.
+
+On current Gentle Shell builds whose tinted rail draws independent cards per participant, the shared rail wrapper forwards the host's optional `cardGroups(width)` contract and composes it with each visible participant: carded rails (which also declare `surface: "panel"`) receive a grouped section that renders one leading spacer outside its declared card group and a native rail title in accent without bold emphasis, so the host draws its own gap between cards instead of merging every section into one nested card; 4.6 panel hosts without card groups keep the plain borderless rows; and any participant without its own group metadata is composed as a single group spanning its rows.
+
+When the rail is unavailable, Pi uses a passive right-side overlay on terminals at least 100 columns wide. Non-interactive, JSON, print, and RPC modes do not mount terminal UI.
 
 ## Development
 

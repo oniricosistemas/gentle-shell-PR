@@ -14,6 +14,7 @@ const detailPayload = {
   body: "Overview\nsummary", author: { login: "octocat" }, labels: [{ name: "feature" }],
   headRefName: "feat/inspector", baseRefName: "main", isDraft: true,
   reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED", state: "OPEN",
+  latestReviews: [{ state: "COMMENTED" }],
   additions: 12, deletions: 3, changedFiles: 1,
   createdAt: "2026-11-01T12:00:00Z", updatedAt: "2026-11-05T12:00:00Z",
   closedAt: null, mergedAt: null,
@@ -37,7 +38,7 @@ test("detail collector executes exactly one bounded read-only metadata request",
   });
   assert.equal(result.error, undefined);
   assert.deepEqual(calls, [["gh", ["pr", "view", "42", "--repo", "org/repo", "--json",
-    "number,title,url,body,author,labels,headRefName,baseRefName,isDraft,reviewDecision,mergeStateStatus,state,additions,deletions,changedFiles,createdAt,updatedAt,closedAt,mergedAt,statusCheckRollup,files"],
+    "number,title,url,body,author,labels,headRefName,baseRefName,isDraft,reviewDecision,mergeStateStatus,state,additions,deletions,changedFiles,createdAt,updatedAt,closedAt,mergedAt,statusCheckRollup,latestReviews,files"],
   { cwd: "/workspace/project", timeoutMs: 15_000 }]]);
 });
 
@@ -48,7 +49,7 @@ test("detail collector normalizes Overview, Checks and Files without patch data"
       number: 42, title: "Inspector", url: "https://github.com/org/repo/pull/42",
       bodySummary: "Overview\nsummary", author: "octocat", labels: ["feature"],
       headBranch: "feat/inspector", baseBranch: "main", isDraft: true,
-      review: "waiting", merge: "blocked", state: "OPEN",
+      review: "waiting", reviewFeedback: true, merge: "blocked", state: "OPEN",
       additions: 12, deletions: 3, changedFiles: 1,
       createdAt: detailPayload.createdAt, updatedAt: detailPayload.updatedAt,
       closedAt: undefined, mergedAt: undefined,
@@ -151,6 +152,7 @@ test("normalizePullRequest derives bounded CI, review, and merge facts", () => {
     baseRefName: "main",
     isDraft: false,
     reviewDecision: "APPROVED",
+    latestReviews: [{ state: "COMMENTED" }],
     mergeStateStatus: "CLEAN",
     updatedAt: "2026-11-05T12:00:00Z",
     statusCheckRollup: [
@@ -168,6 +170,7 @@ test("normalizePullRequest derives bounded CI, review, and merge facts", () => {
     baseBranch: "main",
     isDraft: false,
     review: "approved",
+    reviewFeedback: true,
     merge: "ready",
     checks: { passed: 1, failed: 1, pending: 1, total: 3 },
     updatedAt: "2026-11-05T12:00:00Z",
@@ -244,7 +247,7 @@ test("collectPullRequests uses read-only git and gh commands and prioritizes the
         "--limit",
         "5",
         "--json",
-        "number,title,url,headRefName,baseRefName,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,updatedAt",
+        "number,title,url,headRefName,baseRefName,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,latestReviews,updatedAt",
       ],
       cwd: "/workspace/project",
     },

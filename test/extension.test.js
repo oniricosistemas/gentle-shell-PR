@@ -121,6 +121,8 @@ test("pr-focus opens a capturing inspector and loads Overview, Checks and Files 
     error: undefined,
   };
   const detailCalls = [];
+  const executeCalls = [];
+  const kittyO = "\u001b[111u";
   createPrSidebarExtension({
     collect: async () => focusedResult,
     collectDetail: async (options) => {
@@ -136,6 +138,11 @@ test("pr-focus opens a capturing inspector and loads Overview, Checks and Files 
       };
     },
     renderMarkdown: () => ["Rendered Markdown detail"],
+    matchesKey: (data, key) => data === kittyO && key === "o",
+    execute: async (...args) => {
+      executeCalls.push(args);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
     setIntervalFn: () => 1,
     clearIntervalFn() {},
   })(harness.pi);
@@ -151,6 +158,12 @@ test("pr-focus opens a capturing inspector and loads Overview, Checks and Files 
   assert.equal(inspector.options.overlayOptions.maxHeight, "85%");
   assert.notEqual(inspector.options.overlayOptions.nonCapturing, true);
   assert.match(inspector.component.render(96).join("\n"), /Rendered Markdown detail/);
+  inspector.component.handleInput(kittyO);
+  assert.deepEqual(executeCalls, [[
+    "gh",
+    ["pr", "view", "42", "--repo", focusedResult.repository, "--web"],
+    { cwd: "/workspace/project" },
+  ]]);
   inspector.component.handleInput("\u001b[27u");
   await inspector.promise;
   assert.equal(inspector.closed, true);

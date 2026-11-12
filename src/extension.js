@@ -17,6 +17,7 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const execute = dependencies.execute ?? executeFile;
+  const matchesKey = dependencies.matchesKey;
   const renderMarkdown = dependencies.renderMarkdown;
   const setIntervalFn = dependencies.setIntervalFn ?? setInterval;
   const clearIntervalFn = dependencies.clearIntervalFn ?? clearInterval;
@@ -99,6 +100,7 @@ export function createPrSidebarExtension(dependencies = {}) {
           tui,
           theme,
           keybindings,
+          matchesKey,
           renderMarkdown,
           onMarkdownError: () => {
             if (active === current) {
@@ -177,7 +179,9 @@ export function createPrSidebarExtension(dependencies = {}) {
         }
         current.finish = () => done(undefined);
         current.panel = panel;
-        current.rail = attachGentleShellRailPanel(tui, panel);
+        // Feature-detected per host: carded rails get the grouped section, 4.6
+        // panel hosts the plain rows, and older compatible hosts the framed rail.
+        current.rail = attachGentleShellRailPanel(tui, panel, panel, panel.createGroupedPanelSection());
         syncPresentation(current);
         return panel;
       }, {

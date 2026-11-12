@@ -10,6 +10,7 @@ const PR_FIELDS = [
   "reviewDecision",
   "mergeStateStatus",
   "statusCheckRollup",
+  "latestReviews",
   "updatedAt",
 ].join(",");
 
@@ -47,6 +48,11 @@ function normalizeReview(decision) {
   if (decision === "CHANGES_REQUESTED") return "changes_requested";
   if (decision === "REVIEW_REQUIRED") return "waiting";
   return "none";
+}
+
+function hasReviewFeedback(reviews) {
+  if (!Array.isArray(reviews)) return false;
+  return reviews.some((review) => review && ["COMMENTED", "CHANGES_REQUESTED"].includes(review.state));
 }
 
 function normalizeMerge(state) {
@@ -91,6 +97,7 @@ export function normalizePullRequest(pr) {
     baseBranch: typeof pr.baseRefName === "string" ? pr.baseRefName : "unknown",
     isDraft: pr.isDraft === true,
     review: normalizeReview(pr.reviewDecision),
+    reviewFeedback: hasReviewFeedback(pr.latestReviews),
     merge: normalizeMerge(pr.mergeStateStatus),
     checks: normalizeChecks(pr.statusCheckRollup),
     updatedAt: typeof pr.updatedAt === "string" ? pr.updatedAt : undefined,
@@ -100,7 +107,7 @@ export function normalizePullRequest(pr) {
 const PR_DETAIL_FIELDS = [
   "number", "title", "url", "body", "author", "labels", "headRefName", "baseRefName",
   "isDraft", "reviewDecision", "mergeStateStatus", "state", "additions", "deletions",
-  "changedFiles", "createdAt", "updatedAt", "closedAt", "mergedAt", "statusCheckRollup", "files",
+  "changedFiles", "createdAt", "updatedAt", "closedAt", "mergedAt", "statusCheckRollup", "latestReviews", "files",
 ].join(",");
 
 function detailText(value, limit = 500) {
@@ -170,6 +177,7 @@ export async function collectPullRequestDetail({ cwd, repository, number, execut
       baseBranch: overview.baseBranch,
       isDraft: overview.isDraft,
       review: overview.review,
+      reviewFeedback: overview.reviewFeedback,
       merge: overview.merge,
       state: detailText(payload.state),
       additions: detailCount(payload.additions),

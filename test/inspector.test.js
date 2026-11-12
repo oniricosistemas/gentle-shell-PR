@@ -32,6 +32,7 @@ const detail = {
     baseBranch: "main",
     isDraft: false,
     review: "approved",
+    reviewFeedback: true,
     merge: "ready",
     state: "OPEN",
     additions: 84,
@@ -142,6 +143,7 @@ test("the inspector switches between Checks and Files tabs with keyboard input",
 
   inspector.handleInput("\u001b[C");
   assert.equal(inspector.getActiveTab(), "Checks");
+  assert.match(plain(inspector.render(96)), /1 passed · 1 running · 1 failed · feedback/);
   assert.match(plain(inspector.render(96)), /test \/ node-22/);
   assert.match(plain(inspector.render(96)), /preview deployment/);
   assert.match(plain(inspector.render(96)), /security/);

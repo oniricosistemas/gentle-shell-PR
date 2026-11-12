@@ -179,7 +179,9 @@ export function createPrSidebarExtension(dependencies = {}) {
         }
         current.finish = () => done(undefined);
         current.panel = panel;
-        current.rail = attachGentleShellRailPanel(tui, panel);
+        // Feature-detected per host: carded rails get the grouped section, 4.6
+        // panel hosts the plain rows, and older compatible hosts the framed rail.
+        current.rail = attachGentleShellRailPanel(tui, panel, panel, panel.createGroupedPanelSection());
         syncPresentation(current);
         return panel;
       }, {

@@ -355,3 +355,203 @@ test("createPullRequestPanel reports its initial collapsed state", () => {
   });
   assert.deepEqual(railChanges, [true]);
 });
+
+test("the shared rail wrapper composes card groups and offsets grouped participants", () => {
+  const original = {
+    render: () => ["▾ CHANGES", "  clean", "▾ INTEGRATIONS", "  Engram OK", "  /gentle:panel"],
+    invalidate() {},
+    digest: () => "footer",
+    cardGroups: () => ({ groups: [{ start: 0, end: 2 }, { start: 2, end: 4 }], loose: [4] }),
+  };
+  const grouped = {
+    render: () => ["", "▾ Pull requests · 1", "#42 Add PR sidebar"],
+    invalidate() {},
+    digest: () => "prs",
+    cardGroups: () => ({ groups: [{ start: 1, end: 3 }] }),
+  };
+  const plain = { render: () => ["▾ FUTURE", "  future row"], invalidate() {}, digest: () => "future" };
+  const terminal = {
+    [GENTLE_SHELL_SIDEBAR_STATE]: {
+      active: true,
+      ownsHost: () => true,
+      parts: new Map([["footer", original]]),
+    },
+  };
+  const tui = { mode: "fullscreen", terminal, requestRender() {} };
+
+  const first = attachGentleShellRailPanel(tui, plain, plain, grouped);
+  const second = attachGentleShellRailPanel(tui, plain, plain, plain);
+  assert.ok(first);
+  assert.ok(second);
+
+  const wrapper = terminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer");
+  assert.deepEqual(wrapper.render(40), [
+    "▾ CHANGES",
+    "  clean",
+    "▾ INTEGRATIONS",
+    "  Engram OK",
+    "  /gentle:panel",
+    "",
+    "▾ Pull requests · 1",
+    "#42 Add PR sidebar",
+    "▾ FUTURE",
+    "  future row",
+  ]);
+  const composed = wrapper.cardGroups?.(40);
+  assert.deepEqual(composed, {
+    groups: [
+      { start: 0, end: 2 },
+      { start: 2, end: 4 },
+      { start: 6, end: 8 },
+      { start: 8, end: 10 },
+    ],
+    loose: [4],
+  });
+  assert.equal(
+    composed.groups.every(({ start, end }) => start > 5 || end <= 5),
+    true,
+    "no composed group may claim the participant's tinted spacer row",
+  );
+
+  first.setVisible(false);
+  assert.deepEqual(wrapper.render(40), [
+    "▾ CHANGES",
+    "  clean",
+    "▾ INTEGRATIONS",
+    "  Engram OK",
+    "  /gentle:panel",
+    "▾ FUTURE",
+    "  future row",
+  ]);
+  assert.deepEqual(wrapper.cardGroups?.(40), {
+    groups: [
+      { start: 0, end: 2 },
+      { start: 2, end: 4 },
+      { start: 5, end: 7 },
+    ],
+    loose: [4],
+  });
+
+  first.dispose();
+  second.dispose();
+  assert.equal(terminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer"), original);
+});
+
+test("the rail selects the grouped participant on carded hosts and the panel variant on 4.6 surfaces", () => {
+  const framed = { render: () => ["framed"], invalidate() {}, digest: () => "framed" };
+  const panelVariant = { render: () => ["panel-rows"], invalidate() {}, digest: () => "panel" };
+  const groupedVariant = { render: () => ["", "grouped-rows"], invalidate() {}, digest: () => "grouped", cardGroups: () => ({ groups: [{ start: 1, end: 2 }] }) };
+
+  const cardedTerminal = {
+    [GENTLE_SHELL_SIDEBAR_STATE]: {
+      active: true,
+      ownsHost: () => true,
+      parts: new Map([["footer", {
+        render: () => ["footer"],
+        invalidate() {},
+        cardGroups: () => ({ groups: [{ start: 0, end: 1 }] }),
+      }]]),
+    },
+  };
+  const carded = attachGentleShellRailPanel(
+    { mode: "fullscreen", terminal: cardedTerminal, requestRender() {} },
+    framed,
+    panelVariant,
+    groupedVariant,
+  );
+  assert.ok(carded);
+  assert.deepEqual(cardedTerminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer").render(40), ["footer", "", "grouped-rows"]);
+  carded.dispose();
+
+  const panelTerminal = {
+    [GENTLE_SHELL_SIDEBAR_STATE]: {
+      active: true,
+      ownsHost: () => true,
+      parts: new Map([["footer", { render: () => ["footer"], invalidate() {}, digest: () => "footer", surface: "panel" }]]),
+    },
+  };
+  const panelAttached = attachGentleShellRailPanel(
+    { mode: "fullscreen", terminal: panelTerminal, requestRender() {} },
+    framed,
+    panelVariant,
+    groupedVariant,
+  );
+  assert.ok(panelAttached);
+  assert.deepEqual(panelTerminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer").render(40), ["footer", "panel-rows"]);
+  panelAttached.dispose();
+
+  const legacyTerminal = {
+    [GENTLE_SHELL_SIDEBAR_STATE]: {
+      active: true,
+      ownsHost: () => true,
+      parts: new Map([["footer", { render: () => ["footer"], invalidate() {}, digest: () => "footer" }]]),
+    },
+  };
+  const legacy = attachGentleShellRailPanel(
+    { mode: "fullscreen", terminal: legacyTerminal, requestRender() {} },
+    framed,
+    panelVariant,
+    groupedVariant,
+  );
+  assert.ok(legacy);
+  assert.deepEqual(legacyTerminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer").render(40), ["footer", "framed"]);
+  legacy.dispose();
+});
+
+test("the grouped panel section keeps its spacer outside the card group and shifts mouse rows", () => {
+  const opened = [];
+  const panel = createPullRequestPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: loadedState,
+    layout: "rail",
+    onOpenPullRequest: (pullRequest) => opened.push(pullRequest),
+  });
+  const grouped = panel.createGroupedPanelSection();
+  const lines = grouped.render(42);
+  assert.equal(lines[0], "");
+  const plain = lines.slice(1).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+  // Rail layout mounts collapsed by default: the header shows the collapsed marker.
+  assert.match(plain[0], /▸ Pull requests · 1/);
+
+  assert.deepEqual(grouped.cardGroups?.(42), { groups: [{ start: 1, end: lines.length }] });
+
+  // Clicking the header row (grouped y 1) toggles collapse; the spacer is inert.
+  assert.equal(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 0 }), undefined);
+  assert.deepEqual(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 1 }), { handled: true, render: true });
+  assert.equal(panel.isCollapsed(), false);
+
+  const expanded = grouped.render(42);
+  assert.match(expanded[1].replace(/\u001b\[[0-9;]*m/g, ""), /▾ Pull requests · 1/);
+  assert.deepEqual(grouped.cardGroups?.(42), { groups: [{ start: 1, end: expanded.length }] });
+  assert.deepEqual(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 3 }), { handled: true, render: false });
+  assert.equal(opened[0], loadedState.pullRequests[0]);
+});
+
+test("the shared rail wrapper degrades digest failures and ignores out-of-bounds mouse rows", () => {
+  const original = {
+    render: () => ["status"],
+    invalidate() {},
+    digest() { throw new Error("digest failure"); },
+  };
+  const terminal = {
+    [GENTLE_SHELL_SIDEBAR_STATE]: {
+      active: true,
+      ownsHost: () => true,
+      parts: new Map([["footer", original]]),
+    },
+  };
+  const tui = { mode: "fullscreen", terminal, requestRender() {} };
+  const handle = attachGentleShellRailPanel(tui, { render: () => ["prs"], invalidate() {}, digest: () => "prs" });
+  assert.ok(handle);
+
+  const wrapper = terminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer");
+  assert.deepEqual(JSON.parse(wrapper.digest()), ["", 1, ["prs"]]);
+  assert.equal(wrapper.handleMouse({ type: "click", button: "left", x: 0, y: -1, width: 40, height: 2 }), undefined);
+  assert.equal(wrapper.handleMouse({ type: "click", button: "left", x: 0, y: 5, width: 40, height: 2 }), undefined);
+  assert.equal(typeof handle.isMounted(), "boolean");
+  assert.equal(handle.isMounted(), true);
+
+  handle.dispose();
+  assert.equal(terminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer"), original);
+});

@@ -78,7 +78,7 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
     return theme.fg(token, emphasized);
   };
 
-  const render = (width) => {
+  const render = (width, nativeTitle = false) => {
     pullRequestTitleRows = new Map();
     const boundedWidth = Math.max(0, Math.floor(width));
     if (boundedWidth === 0) return [];
@@ -98,7 +98,9 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
 
     const lines = [];
     if (railMode) {
-      lines.push(row("accent", titleText, true));
+      // Native rail card headers carry the accent role without the bold
+      // card-title emphasis (Gentle Shell tinted rail titles).
+      lines.push(row("accent", titleText, !nativeTitle));
       if (collapsed) return lines;
     } else {
       const title = truncateText(titleText, Math.max(1, boundedWidth - 6));
@@ -155,7 +157,7 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
     tui.requestRender();
   };
 
-  return {
+  const panel = {
     render,
     invalidate: () => tui.requestRender(),
     digest: () => JSON.stringify({ state, collapsed }),
@@ -178,10 +180,39 @@ export function createPullRequestPanel({ tui, theme, initialState, onCollapsedCh
       }
       return undefined;
     },
+    // Gentle Shell's newer tinted rail draws independent cards per participant.
+    // This grouped variant renders one leading spacer plus the same borderless
+    // rows, and declares its card group starting at row 1 so the spacer stays
+    // outside the card and carded rails insert their own gap instead.
+    createGroupedPanelSection() {
+      const renderGrouped = (width) => {
+        const boundedWidth = Math.floor(width);
+        if (boundedWidth <= 0) return [];
+        return ["", ...render(boundedWidth, true)];
+      };
+      return {
+        render: renderGrouped,
+        invalidate: () => tui.requestRender(),
+        digest: () => JSON.stringify({ state, collapsed, grouped: true }),
+        cardGroups: (width) => {
+          const lines = renderGrouped(width);
+          if (lines.length <= 1) return undefined;
+          return { groups: [{ start: 1, end: lines.length }] };
+        },
+        handleMouse: (event) => {
+          if (event?.button !== "left" || event.type !== "click") return undefined;
+          if (event.y <= 0) return undefined;
+          return panel.handleMouse({ ...event, y: event.y - 1 });
+        },
+      };
+    },
   };
+
+  return panel;
 }
 
 function createSharedRailStack(host, original) {
+  const supportsCardGroups = typeof original.cardGroups === "function";
   const stack = {
     host,
     original,
@@ -189,9 +220,39 @@ function createSharedRailStack(host, original) {
     participants: new Map(),
     revision: 0,
     segments: [],
+    segmentsWidth: undefined,
+    surface: original.surface,
+    supportsCardGroups,
   };
 
   stack.wrapper = {
+    ...(supportsCardGroups
+      ? {
+        // Gentle Shell's transparent rail asks each part for optional
+        // cardGroups(width) to draw independent cards. Without forwarding the
+        // contract the host falls back to one group spanning every row,
+        // reprocesses already width-shaped rows, merges all sections into a
+        // single nested card, and appends ellipses.
+        cardGroups(width) {
+          if (stack.segmentsWidth !== width) stack.wrapper.render(width);
+          const groups = [];
+          const loose = [];
+          for (const segment of stack.segments) {
+            const layout = segment.component.cardGroups?.(width);
+            if (layout) {
+              groups.push(...layout.groups.map(({ start, end }) => ({
+                start: segment.startY + start,
+                end: segment.startY + end,
+              })));
+              loose.push(...(layout.loose ?? []).map((row) => segment.startY + row));
+            } else {
+              groups.push({ start: segment.startY, end: segment.startY + segment.height });
+            }
+          }
+          return loose.length > 0 ? { groups, loose } : { groups };
+        },
+      }
+      : {}),
     render(width) {
       const lines = [];
       const segments = [];
@@ -206,21 +267,38 @@ function createSharedRailStack(host, original) {
         if (participant.visible) append(participant.component);
       }
       stack.segments = segments;
+      stack.segmentsWidth = width;
       return lines;
     },
     invalidate() {
       stack.revision += 1;
       stack.segments = [];
+      stack.segmentsWidth = undefined;
       original.invalidate();
       for (const participant of stack.participants.values()) participant.component.invalidate();
     },
     digest() {
-      const participantDigests = [...stack.participants.values()]
-        .filter((participant) => participant.visible)
-        .map((participant) => participant.component.digest?.() ?? "");
-      return JSON.stringify([original.digest?.() ?? "", stack.revision, participantDigests]);
+      let originalDigest = "";
+      try {
+        originalDigest = original.digest?.() ?? "";
+      } catch {
+        // A host digest failure degrades that component to explicit invalidation.
+      }
+      const participantDigests = [];
+      for (const participant of stack.participants.values()) {
+        if (!participant.visible) continue;
+        let digest = "";
+        try {
+          digest = participant.component.digest?.() ?? "";
+        } catch {
+          // A participant digest failure also degrades to explicit invalidation.
+        }
+        participantDigests.push(digest);
+      }
+      return JSON.stringify([originalDigest, stack.revision, participantDigests]);
     },
     handleMouse(event) {
+      if (event.y < 0 || event.y >= event.height) return undefined;
       const segment = stack.segments.find((candidate) => event.y >= candidate.startY && event.y < candidate.startY + candidate.height);
       if (!segment) return undefined;
       const result = segment.component.handleMouse?.({
@@ -253,11 +331,21 @@ function isCompatibleStack(value, host) {
     && isComponent(value.wrapper)
     && value.participants instanceof Map
     && Array.isArray(value.segments)
-    && typeof value.revision === "number",
+    && typeof value.revision === "number"
+    && typeof value.supportsCardGroups === "boolean",
   );
 }
 
-export function attachGentleShellRailPanel(tui, component) {
+function railOwnsHost(host) {
+  if (typeof host.ownsHost !== "function") return host.active !== false;
+  try {
+    return host.ownsHost() === true;
+  } catch {
+    return false;
+  }
+}
+
+export function attachGentleShellRailPanel(tui, component, panelComponent = component, groupedPanelComponent = panelComponent) {
   if (tui.mode !== "fullscreen" || !tui.terminal) return undefined;
   const terminal = tui.terminal;
   const host = terminal[GENTLE_SHELL_SIDEBAR_STATE];
@@ -273,7 +361,16 @@ export function attachGentleShellRailPanel(tui, component) {
   }
 
   const id = Symbol("gentle-shell-pr-rail-participant");
-  const participant = { component, visible: true };
+  // Feature-detect the host capabilities: carded rails receive the grouped
+  // participant whose spacer stays outside its declared group, 4.6 panel hosts
+  // receive the separated panel variant, and older compatible hosts keep the
+  // plain framed component.
+  const participant = {
+    component: stack.supportsCardGroups
+      ? groupedPanelComponent
+      : stack.surface === "panel" ? panelComponent : component,
+    visible: true,
+  };
   stack.participants.set(id, participant);
   stack.revision += 1;
   tui.requestRender();
@@ -284,11 +381,13 @@ export function attachGentleShellRailPanel(tui, component) {
     if (disposed) return;
     stack.revision += 1;
     stack.segments = [];
+    stack.segmentsWidth = undefined;
     tui.requestRender();
   };
 
   return {
-    isActive: () => mounted() && host.active !== false && (typeof host.ownsHost !== "function" || host.ownsHost()),
+    isMounted: mounted,
+    isActive: () => mounted() && railOwnsHost(host),
     setVisible(visible) {
       if (disposed || participant.visible === visible) return;
       participant.visible = visible;

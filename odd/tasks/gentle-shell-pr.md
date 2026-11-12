@@ -18,9 +18,13 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 12. **S12** — "para no sobrecargar el sidebar, con convendria que al hacer click sobre el nombre del PR se abra una ventana con toda la información, en vez de mostrarla toda en el sidebar, hasta podriamos hacer como pestañas para lo que va a mostrar cada una de las versiones"
 13. **S13** — "yo sacaria lo del diff gentle-shell ya trae uno. Vamos con el primer upgrade"
 
+14. **S14** — "ok, continuemos con el desarrollo de pr-flow" + eleccion "v0.3 Review Context": el inspector gana una cuarta pestaña Context con tres secciones segun el artboard `design/pr-sidebar-roadmap/02-v03-review-context.html`: Linked issue (numero, titulo, estado, labels, "linked by PR"), Review threads (solo sin resolver: autor, antiguedad, excerpt, `archivo:linea`), y Failed check (nombre del check + excerpt acotado y sanitizado).
+15. **S15** — "Faster diagnosis; a denser, noisier rail. Local notifications only · no repository mutations": el contexto es estrictamente read-only, sin mutaciones de repositorio; los fallos de coleccion degradan sin romper el inspector.
+16. **S16** — Todo el contenido externo (issues, comentarios de review, anotaciones de checks) se sanitiza con el mismo criterio del resto del paquete y se presenta acotado (issues: max 3; threads sin resolver: max 8; anotaciones: max 10 con mensajes de max 200 caracteres; excerpt del resumen del check: max 1000 caracteres).
+
 ## Tasks
 
-- [x] **T1** — S1, S2, S3, S9 — Route: parent — Scaffold the public Gentle Shell extension repository and package metadata. Commit: `8ed44f4`.
+- [x] **T1 — S1, S2, S3, S9 — Route: parent — Scaffold the public Gentle Shell extension repository and package metadata. Commit: `8ed44f4`.
 - [x] **T2** — S6, S7, S8 — Route: parent — Implement and test the bounded read-only GitHub PR state collector. Commit: `c104c8a`.
 - [x] **T3** — S5, S6, S7, S8 — Route: parent — Implement and test the compact theme-aware Gentle Shell sidebar and lifecycle. Commits: `ff31ac2`, `f7d6cf0`.
 - [x] **T4** — S4 — Route: parent — Enroll the project for Engram Cloud synchronization and record reproducible configuration. Commit: `abe72cb`.
@@ -32,6 +36,9 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T10** — S12, S13 — Route: parent — Implement the theme-aware focused PR inspector with Overview, Checks, and Files tabs, without a diff viewer. Commit: `e2cf493`.
 - [x] **T11** — S12, S13 — Route: parent — Open the inspector from PR title click and `/pr-focus`, preserving `/pr-open` and sidebar behavior. Commit: `8a5c88a`.
 - [x] **T12** — S12, S13 — Route: parent — Update usage documentation, complete the design handoff, and verify the first upgrade. Commit: `1bea325`.
+- [x] **T13** — S14, S15, S16 — Route: parent — Collect bounded read-only PR context (closing issues, unresolved review threads, failed check excerpt) via one GraphQL query plus check-run annotations. Tests first. Commit: `a6fe651`.
+- [x] **T14** — S14, S15, S16 — Route: parent — Render the Context tab in the inspector (fourth tab, key 4, bounded sections, Enter toggles the failed-check excerpt). Tests first. Commit: `a6fe651`.
+- [x] **T15** — S14, S15 — Route: parent — Wire context collection into the inspector session with graceful degradation; update README. Commit: `a6fe651`.
 
 ## Log
 
@@ -49,3 +56,5 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L12** — "ok, yo sacaria lo del diff gentle-shell ya trae uno. Vamos con el primer upgrade"
 - **L13** — Implementation handoff selected `design/pr-sidebar-roadmap/01-v02-focused-detail.html`; the other roadmap artboards remain alternatives. The production inspector omits a diff viewer and uses Files only for metadata/listing because Gentle Shell already provides diff viewing.
 - **L14** — v0.2 verification: `npm run check` passed all 30 tests; the selected HTML artboard parsed successfully; `git diff --check` passed. The initial `npm run pack:check` attempt timed out after 30 seconds without output; a bounded retry completed successfully in 1 second and verified the `gentle-shell-pr@0.2.0` dry-run tarball with 8 files, a 13.1 kB package size, and a 45.7 kB unpacked size.
+- **L15** — "ok, continuemos con el desarrollo de pr-flow" + eleccion "v0.3 Review Context" (artboard `design/pr-sidebar-roadmap/02-v03-review-context.html`). Las alternativas v0.4 Merge Timeline y v0.5 Command Center siguen pendientes como artboards.
+- **L16** — v0.3 verification: `npm run check` passed all 55 tests (3 context-collector tests RED first, 3 Context-tab tests RED first, then GREEN); `git diff --check` clean. Work committed as `a6fe651` on `feat/review-context` (branched from `origin/main` after the #15 merge).

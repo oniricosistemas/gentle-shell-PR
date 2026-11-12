@@ -1,4 +1,4 @@
-import { collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";
+import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";
 import { createPullRequestInspector } from "./inspector.js";
 import { attachGentleShellRailPanel, createPullRequestPanel } from "./sidebar.js";
 
@@ -143,6 +143,25 @@ export function createPrSidebarExtension(dependencies = {}) {
           error: "Could not load pull request details",
           loading: false,
         };
+      }
+      if (active === current && current.inspectorSession === session && session.state.pullRequest) {
+        // Review context is optional: a failure degrades to an unavailable
+        // Context tab without affecting the loaded detail.
+        try {
+          const context = await collectPullRequestContext({
+            cwd: context.cwd,
+            repository: current.state.repository,
+            number: session.state.pullRequest.number,
+          });
+          if (active === current && current.inspectorSession === session && !context.error) {
+            session.state = {
+              ...session.state,
+              pullRequest: { ...session.state.pullRequest, context: context.context },
+            };
+          }
+        } catch {
+          // Context stays unavailable.
+        }
       }
       if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
     };

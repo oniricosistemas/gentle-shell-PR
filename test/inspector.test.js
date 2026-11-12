@@ -225,3 +225,106 @@ test("the inspector renders bounded loading and error states", () => {
   inspector.setState({ repository: "org/repo", loading: false, pullRequest: undefined, error: "Could not load pull request details" });
   assert.match(plain(inspector.render(80)), /Could not load pull request details/);
 });
+
+test("the inspector exposes a Context tab with linked issues, review threads, and the failed check", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      context: {
+        linkedIssues: [{ number: 128, title: "Prevent open redirects", state: "OPEN", body: "Keep OAuth return URLs on the current origin.", labels: ["security"] }],
+        reviewThreads: [{ path: "src/auth/callback.ts", line: 82, author: "marin", createdAt: "2026-11-12T14:50:00Z", outdated: false, excerpt: "Can we reject protocol-relative URLs here?" }],
+        failedCheck: { name: "Security / callback-policy", summary: "FAIL rejects external return URLs\ninput: //outside.example", annotations: [{ message: "Protocol-relative URLs pass the leading-slash check", path: "src/auth/callback.ts", line: 82 }] },
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+
+  inspector.setTab("Context");
+  assert.equal(inspector.getActiveTab(), "Context");
+  const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+
+  assert.match(lines, /\[Context\]/);
+  assert.match(lines, /Linked issue/);
+  assert.match(lines, /#128 · Prevent open redirects/);
+  assert.match(lines, /Keep OAuth return URLs on the current origin/);
+  assert.match(lines, /security · open · linked by PR/);
+  assert.match(lines, /Review threads · 1 unresolved/);
+  assert.match(lines, /@marin/);
+  assert.match(lines, /Can we reject protocol-relative URLs here\?/);
+  assert.match(lines, /src\/auth\/callback\.ts:82/);
+  assert.match(lines, /Failed check · × Security \/ callback-policy/);
+  assert.match(lines, /FAIL rejects external return URLs/);
+  assert.match(lines, /Protocol-relative URLs pass the leading-slash check/);
+});
+
+test("the Context tab degrades gracefully without context or with empty sections", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+  });
+  inspector.setTab("Context");
+  let lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  assert.match(lines, /Review context is unavailable/);
+
+  const empty = {
+    ...detail,
+    pullRequest: { ...detail.pullRequest, context: { linkedIssues: [], reviewThreads: [], failedCheck: undefined } },
+  };
+  const emptyInspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: empty,
+  });
+  emptyInspector.setTab("Context");
+  lines = emptyInspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  assert.match(lines, /No linked issues/);
+  assert.match(lines, /No unresolved review threads/);
+  assert.match(lines, /No failed checks/);
+});
+
+test("key 4 selects the Context tab and Enter toggles the failed-check excerpt", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      context: {
+        linkedIssues: [],
+        reviewThreads: [],
+        failedCheck: {
+          name: "Security",
+          summary: Array.from({ length: 8 }, (_, index) => `log line ${index + 1}`).join("\n"),
+          annotations: [],
+        },
+      },
+    },
+  };
+  const renders = [];
+  const inspector = createPullRequestInspector({
+    tui: { requestRender: () => renders.push(1) },
+    theme: createTheme(),
+    initialState: state,
+  });
+
+  inspector.handleInput("4");
+  assert.equal(inspector.getActiveTab(), "Context");
+  const compact = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  assert.match(compact, /log line 1/);
+  assert.doesNotMatch(compact, /log line 8/);
+  assert.match(compact, /Enter expand/);
+
+  inspector.handleInput("\r");
+  const expanded = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  assert.match(expanded, /log line 8/);
+  assert.match(expanded, /Enter collapse/);
+
+  inspector.handleInput("\r");
+  const collapsedAgain = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  assert.doesNotMatch(collapsedAgain, /log line 8/);
+  assert.ok(renders.length >= 3);
+});

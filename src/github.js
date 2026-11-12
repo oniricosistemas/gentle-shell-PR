@@ -138,6 +138,10 @@ function detailRows(value, limit) {
     : [];
 }
 
+function timestamp(value) {
+  return typeof value === "string" ? detailText(value, 100) : undefined;
+}
+
 /** Read-only inspector metadata. No patch or diff fields are requested or retained. */
 export async function collectPullRequestDetail({ cwd, repository, number, execute = executeFile }) {
   const unavailable = (error) => ({ repository, pullRequest: undefined, error });
@@ -161,7 +165,6 @@ export async function collectPullRequestDetail({ cwd, repository, number, execut
 
   // Reuse sidebar normalization so review, merge and check semantics cannot drift.
   const overview = normalizePullRequest(payload);
-  const timestamp = value => typeof value === "string" ? detailText(value, 100) : undefined;
   return {
     repository,
     error: undefined,
@@ -201,6 +204,124 @@ export async function collectPullRequestDetail({ cwd, repository, number, execut
       })),
     },
   };
+}
+
+const PR_CONTEXT_QUERY = `
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      closingIssuesReferences(first: 3) {
+        nodes { number title state bodyText labels(first: 10) { nodes { name } } }
+      }
+      reviewThreads(first: 20) {
+        nodes {
+          isResolved
+          isOutdated
+          path
+          line
+          comments(first: 3) { nodes { author { login } body createdAt } }
+        }
+      }
+      statusCheckRollup(first: 100) {
+        nodes { ... on CheckRun { id name conclusion } }
+      }
+    }
+  }
+}`;
+
+/**
+ * Bounded read-only review context for the inspector's Context tab: closing
+ * issues, unresolved review threads, and the failed check excerpt. All external
+ * text is sanitized; every collection failure degrades without breaking the
+ * caller. No patch, diff, or log-download fields are requested or retained.
+ */
+export async function collectPullRequestContext({ cwd, repository, number, execute = executeFile }) {
+  const [owner, name] = String(repository ?? "").split("/");
+  if (!owner || !name) {
+    return { repository, error: "Could not load pull request context", context: undefined };
+  }
+
+  let result;
+  try {
+    result = await execute("gh", [
+      "api", "graphql",
+      "-f", `query=${PR_CONTEXT_QUERY}`,
+      "-f", `owner=${owner}`,
+      "-f", `name=${name}`,
+      "-F", `number=${Number(number)}`,
+    ], { cwd, timeoutMs: 15_000 });
+  } catch {
+    return { repository, error: "Could not load pull request context", context: undefined };
+  }
+  if (result.exitCode !== 0) {
+    return { repository, error: "Could not load pull request context", context: undefined };
+  }
+
+  let payload;
+  let pull;
+  try {
+    payload = JSON.parse(result.stdout);
+    pull = payload?.data?.repository?.pullRequest;
+    if (!pull || typeof pull !== "object") throw new Error("Invalid context");
+  } catch {
+    return { repository, error: "GitHub returned invalid pull request context data", context: undefined };
+  }
+
+  const linkedIssues = detailRows(pull.closingIssuesReferences?.nodes, 3).map((issue) => ({
+    number: detailCount(issue.number),
+    title: detailText(issue.title, 200),
+    state: detailText(issue.state, 20),
+    body: detailText(issue.bodyText, 200),
+    labels: detailRows(issue.labels?.nodes, 10).map((label) => detailText(label.name)).filter(Boolean),
+  }));
+
+  const reviewThreads = detailRows(pull.reviewThreads?.nodes, 20)
+    .filter((thread) => thread.isResolved !== true)
+    .slice(0, 8)
+    .map((thread) => {
+      const comment = detailRows(thread.comments?.nodes, 1)[0];
+      return {
+        path: detailText(thread.path, 500),
+        line: detailCount(thread.line),
+        author: detailText(comment?.author?.login),
+        createdAt: timestamp(comment?.createdAt),
+        outdated: thread.isOutdated === true,
+        excerpt: detailText(comment?.body, 200),
+      };
+    })
+    .filter((thread) => thread.excerpt || thread.path);
+
+  const failedRun = detailRows(pull.statusCheckRollup?.nodes, 100)
+    .find((run) => run.__typename === "CheckRun" && FAILED_CONCLUSIONS.has(run.conclusion));
+
+  let failedCheck;
+  if (failedRun) {
+    failedCheck = { name: detailText(failedRun.name, 200), summary: undefined, annotations: [] };
+    const runPath = `repos/${repository}/check-runs/${failedRun.id}`;
+    try {
+      const runResult = await execute("gh", ["api", runPath, "--repo", repository], { cwd, timeoutMs: 15_000 });
+      if (runResult.exitCode === 0) {
+        const run = JSON.parse(runResult.stdout);
+        failedCheck.summary = detailMarkdown(run?.output?.summary, 1000) || undefined;
+      }
+    } catch {
+      // A failed check excerpt degrades to the name alone.
+    }
+    try {
+      const annotationsResult = await execute("gh", ["api", `${runPath}/annotations`, "--repo", repository], { cwd, timeoutMs: 15_000 });
+      if (annotationsResult.exitCode === 0) {
+        failedCheck.annotations = detailRows(JSON.parse(annotationsResult.stdout), 10).map((annotation) => ({
+          message: detailText(annotation.message, 200),
+          path: detailText(annotation.path, 500),
+          line: detailCount(annotation.start_line),
+        }));
+      }
+    } catch {
+      // Annotations are optional context.
+    }
+  }
+
+  return { repository, error: undefined, context: { linkedIssues, reviewThreads, failedCheck } };
 }
 
 export function executeFile(command, args, options = {}) {

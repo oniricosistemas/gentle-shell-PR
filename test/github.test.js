@@ -266,3 +266,137 @@ test("collectPullRequests returns an explicit unavailable state without a GitHub
     error: "No GitHub origin found",
   });
 });
+
+test("context collector runs one GraphQL query and check-run requests only when a check failed", async () => {
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          closingIssuesReferences: { nodes: [{ number: 128, title: "Prevent open redirects", state: "OPEN", bodyText: "Keep OAuth return URLs on the current origin.", labels: { nodes: [{ name: "security" }] } }] },
+          reviewThreads: { nodes: [
+            { isResolved: false, isOutdated: false, path: "src/auth/callback.ts", line: 82, comments: { nodes: [{ author: { login: "marin" }, body: "Can we reject protocol-relative URLs here?", createdAt: "2026-11-12T14:50:00Z" }] } },
+            { isResolved: true, isOutdated: false, path: "src/other.ts", line: 1, comments: { nodes: [{ author: { login: "someone" }, body: "resolved thread must not appear", createdAt: "2026-11-12T14:00:00Z" }] } },
+          ] },
+          statusCheckRollup: { nodes: [
+            { __typename: "CheckRun", id: "CR_1", name: "check", conclusion: "SUCCESS" },
+            { __typename: "CheckRun", id: "CR_2", name: "Security / callback-policy", conclusion: "FAILURE" },
+          ] },
+        },
+      },
+    },
+  };
+  const calls = [];
+  const result = await github.collectPullRequestContext({
+    cwd: "/workspace/project", repository: "org/repo", number: 47,
+    execute: async (command, args, options) => {
+      calls.push([command, args, options]);
+      if (args[1] === "graphql") return { exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" };
+      if (args.includes("repos/org/repo/check-runs/CR_2")) {
+        return { exitCode: 0, stdout: JSON.stringify({ name: "Security / callback-policy", output: { title: "1 failure", summary: "FAIL rejects external return URLs\ninput: //outside.example" } }), stderr: "" };
+      }
+      if (args.includes("repos/org/repo/check-runs/CR_2/annotations")) {
+        return { exitCode: 0, stdout: JSON.stringify([{ message: "Protocol-relative URLs pass the leading-slash check", path: "src/auth/callback.ts", start_line: 82 }]), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.repository, "org/repo");
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0][1][0], "api");
+  assert.equal(calls[0][1][1], "graphql");
+  assert.equal(calls[0][1][2], "-f");
+  assert.match(calls[0][1][3], /^query=/);
+  assert.deepEqual(calls[1][1], ["api", "repos/org/repo/check-runs/CR_2", "--repo", "org/repo"]);
+  assert.deepEqual(calls[2][1], ["api", "repos/org/repo/check-runs/CR_2/annotations", "--repo", "org/repo"]);
+
+  assert.deepEqual(result.context, {
+    linkedIssues: [{ number: 128, title: "Prevent open redirects", state: "OPEN", body: "Keep OAuth return URLs on the current origin.", labels: ["security"] }],
+    reviewThreads: [{ path: "src/auth/callback.ts", line: 82, author: "marin", createdAt: "2026-11-12T14:50:00Z", outdated: false, excerpt: "Can we reject protocol-relative URLs here?" }],
+    failedCheck: {
+      name: "Security / callback-policy",
+      summary: "FAIL rejects external return URLs\ninput: //outside.example",
+      annotations: [{ message: "Protocol-relative URLs pass the leading-slash check", path: "src/auth/callback.ts", line: 82 }],
+    },
+  });
+});
+
+test("context collector bounds threads, issues, annotations, and summary", async () => {
+  const threads = Array.from({ length: 12 }, (_, index) => ({
+    isResolved: false, isOutdated: false, path: `src/file${index}.ts`, line: index,
+    comments: { nodes: [{ author: { login: `user${index}` }, body: `x`.repeat(400), createdAt: "2026-11-12T14:50:00Z" }] },
+  }));
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          closingIssuesReferences: { nodes: Array.from({ length: 5 }, (_, index) => ({ number: index, title: "t".repeat(300), state: "OPEN", bodyText: "b".repeat(400), labels: { nodes: [{ name: "l" }] } })) },
+          reviewThreads: { nodes: threads },
+          statusCheckRollup: { nodes: [{ __typename: "CheckRun", id: "CR_9", name: "n".repeat(300), conclusion: "FAILURE" }] },
+        },
+      },
+    },
+  };
+  const result = await github.collectPullRequestContext({
+    cwd: "/workspace/project", repository: "org/repo", number: 1,
+    execute: async (_command, args) => {
+      if (args[1] === "graphql") return { exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" };
+      if (args[1].endsWith("/annotations")) {
+        return { exitCode: 0, stdout: JSON.stringify(Array.from({ length: 20 }, (_, index) => ({ message: "m".repeat(300), path: `p${index}`, start_line: index }))), stderr: "" };
+      }
+      return { exitCode: 0, stdout: JSON.stringify({ name: "n".repeat(300), output: { title: "t", summary: "s".repeat(2000) } }), stderr: "" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.context.linkedIssues.length, 3);
+  assert.equal(result.context.linkedIssues[0].title.length, 200);
+  assert.equal(result.context.linkedIssues[0].body.length, 200);
+  assert.equal(result.context.reviewThreads.length, 8);
+  assert.equal(result.context.reviewThreads[0].excerpt.length, 200);
+  assert.equal(result.context.failedCheck.annotations.length, 10);
+  assert.equal(result.context.failedCheck.annotations[0].message.length, 200);
+  assert.equal(result.context.failedCheck.summary.length <= 1000, true);
+});
+
+test("context collector degrades gracefully when GraphQL or check data fails", async () => {
+  const failing = async () => ({ exitCode: 1, stdout: "", stderr: "boom" });
+  assert.deepEqual(
+    await github.collectPullRequestContext({ cwd: "/w", repository: "org/repo", number: 5, execute: failing }),
+    { repository: "org/repo", error: "Could not load pull request context", context: undefined },
+  );
+
+  const badJson = async (_command, args) => args[1] === "graphql"
+    ? { exitCode: 0, stdout: "not json", stderr: "" }
+    : { exitCode: 0, stdout: "", stderr: "" };
+  assert.deepEqual(
+    await github.collectPullRequestContext({ cwd: "/w", repository: "org/repo", number: 5, execute: badJson }),
+    { repository: "org/repo", error: "GitHub returned invalid pull request context data", context: undefined },
+  );
+
+  // Check-run details failing does not break the rest of the context.
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          closingIssuesReferences: { nodes: [] },
+          reviewThreads: { nodes: [] },
+          statusCheckRollup: { nodes: [{ __typename: "CheckRun", id: "CR_X", name: "Security", conclusion: "FAILURE" }] },
+        },
+      },
+    },
+  };
+  const result = await github.collectPullRequestContext({
+    cwd: "/w", repository: "org/repo", number: 7,
+    execute: async (_command, args) => args[1] === "graphql"
+      ? { exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" }
+      : { exitCode: 1, stdout: "", stderr: "boom" },
+  });
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.context, {
+    linkedIssues: [],
+    reviewThreads: [],
+    failedCheck: { name: "Security", summary: undefined, annotations: [] },
+  });
+});

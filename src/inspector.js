@@ -1,6 +1,7 @@
 import { cleanExternalText } from "./github.js";
 
-const TABS = ["Overview", "Checks", "Files"];
+const TABS = ["Overview", "Checks", "Files", "Context"];
+const COMPACT_CHECK_LINES = 3;
 const ANSI_PATTERN = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\))/g;
 
 function visibleWidth(value) {
@@ -32,6 +33,13 @@ function wrapText(value, width) {
   }
   if (current) lines.push(current);
   return lines;
+}
+
+/** Wraps multiline external text line by line, preserving intentional breaks. */
+function wrapMultiline(value, width) {
+  return String(value ?? "")
+    .split("\n")
+    .flatMap((line) => wrapText(line, width));
 }
 
 function reviewLabel(review) {
@@ -67,6 +75,7 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
   let scrollOffset = 0;
   let closeHitRegion;
   let markdownErrorReported = false;
+  let contextExpanded = false;
 
   const paint = (token, text, bold = false) => {
     const emphasized = bold && typeof theme.bold === "function" ? theme.bold(text) : text;
@@ -137,9 +146,71 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     ];
   };
 
+  const contextLines = (pr, width) => {
+    const context = pr.context;
+    if (!context) return [{ token: "muted", text: "Review context is unavailable." }];
+
+    const lines = [];
+    const issues = Array.isArray(context.linkedIssues) ? context.linkedIssues : [];
+    lines.push({ token: "text", text: `Linked issue${issues.length === 1 ? "" : "s"}${issues.length ? ` · ${issues.length} reference${issues.length === 1 ? "" : "s"}` : ""}`, bold: true });
+    if (!issues.length) {
+      lines.push({ token: "muted", text: "No linked issues" });
+    } else {
+      for (const issue of issues) {
+        lines.push({ token: "text", text: `#${issue.number} · ${issue.title}` });
+        for (const bodyLine of wrapText(issue.body, width - 2)) {
+          lines.push({ token: "muted", text: `  ${bodyLine}` });
+        }
+        const labels = issue.labels?.length ? `${issue.labels.join(", ")} · ` : "";
+        lines.push({ token: "muted", text: `  ${labels}${(issue.state || "state unknown").toLowerCase()} · linked by PR` });
+      }
+    }
+
+    lines.push({ token: "muted", text: "" });
+    const threads = Array.isArray(context.reviewThreads) ? context.reviewThreads : [];
+    lines.push({ token: "text", text: `Review threads · ${threads.length} unresolved`, bold: true });
+    if (!threads.length) {
+      lines.push({ token: "muted", text: "No unresolved review threads" });
+    } else {
+      for (const thread of threads) {
+        const location = thread.path ? `${thread.path}:${thread.line || "?"}` : "";
+        lines.push({ token: "text", text: `@${thread.author || "unknown"}${thread.outdated ? " · outdated" : ""}${location ? ` · ${location}` : ""}` });
+        for (const excerptLine of wrapText(thread.excerpt, width - 2)) {
+          lines.push({ token: "muted", text: `  ${excerptLine}` });
+        }
+      }
+    }
+
+    lines.push({ token: "muted", text: "" });
+    const failed = context.failedCheck;
+    lines.push({ token: "text", text: failed ? `Failed check · × ${failed.name}` : "Failed check", bold: true });
+    if (!failed) {
+      lines.push({ token: "muted", text: "No failed checks" });
+    } else {
+      const summaryLines = wrapMultiline(failed.summary, width - 2).map((line) => ({ token: "error", text: `  ${line}` }));
+      const excerptLines = contextExpanded ? summaryLines : summaryLines.slice(0, COMPACT_CHECK_LINES);
+      lines.push(...excerptLines);
+      if (!contextExpanded && summaryLines.length > COMPACT_CHECK_LINES) {
+        lines.push({ token: "muted", text: `  … ${summaryLines.length - COMPACT_CHECK_LINES} more lines` });
+      }
+      for (const annotation of failed.annotations ?? []) {
+        const location = annotation.path ? ` (${annotation.path}:${annotation.line || "?"})` : "";
+        const messageLines = wrapText(annotation.message, width - 4);
+        messageLines.forEach((messageLine, index) => {
+          lines.push({ token: "warning", text: `  ! ${messageLine}${index === 0 ? location : ""}` });
+        });
+      }
+      if (summaryLines.length > COMPACT_CHECK_LINES) {
+        lines.push({ token: "muted", text: `Enter ${contextExpanded ? "collapse" : "expand"}` });
+      }
+    }
+    return lines;
+  };
+
   const contentLines = (pr, width) => {
     if (activeTabIndex === 1) return checksLines(pr);
     if (activeTabIndex === 2) return filesLines(pr);
+    if (activeTabIndex === 3) return contextLines(pr, width);
     return overviewLines(pr, width);
   };
 
@@ -205,11 +276,10 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     scrollOffset = 0;
     requestRender();
   };
-
   return {
     render,
     invalidate: requestRender,
-    digest: () => JSON.stringify({ state, activeTabIndex, scrollOffset }),
+    digest: () => JSON.stringify({ state, activeTabIndex, scrollOffset, contextExpanded }),
     setState(next) {
       state = next;
       scrollOffset = 0;
@@ -223,8 +293,7 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
         requestRender();
       }
     },
-    getActiveTab: () => TABS[activeTabIndex],
-    handleInput(data) {
+    getActiveTab: () => TABS[activeTabIndex],    handleInput(data) {
       const cancel = keybindings?.matches?.(data, "tui.select.cancel") === true;
       if (cancel || data === "\u001b" || data === "\u0003") {
         onClose?.();
@@ -242,7 +311,12 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
         requestRender();
       } else if (data === "o" || matchesKey?.(data, "o") === true) {
         if (state.pullRequest) onOpenGitHub?.(state.pullRequest);
-      } else if (data === "1" || data === "2" || data === "3") {
+      } else if (data === "\r" || data === "\n") {
+        if (activeTabIndex === 3 && state.pullRequest?.context?.failedCheck) {
+          contextExpanded = !contextExpanded;
+          requestRender();
+        }
+      } else if (data === "1" || data === "2" || data === "3" || data === "4") {
         activeTabIndex = Number(data) - 1;
         scrollOffset = 0;
         requestRender();

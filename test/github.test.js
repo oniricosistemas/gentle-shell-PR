@@ -277,10 +277,10 @@ test("context collector runs one GraphQL query and check-run requests only when 
             { isResolved: false, isOutdated: false, path: "src/auth/callback.ts", line: 82, comments: { nodes: [{ author: { login: "marin" }, body: "Can we reject protocol-relative URLs here?", createdAt: "2026-11-12T14:50:00Z" }] } },
             { isResolved: true, isOutdated: false, path: "src/other.ts", line: 1, comments: { nodes: [{ author: { login: "someone" }, body: "resolved thread must not appear", createdAt: "2026-11-12T14:00:00Z" }] } },
           ] },
-          statusCheckRollup: { nodes: [
-            { __typename: "CheckRun", id: "CR_1", name: "check", conclusion: "SUCCESS" },
-            { __typename: "CheckRun", id: "CR_2", name: "Security / callback-policy", conclusion: "FAILURE" },
-          ] },
+          statusCheckRollup: { contexts: { nodes: [
+            { id: "CR_1", name: "check", conclusion: "SUCCESS" },
+            { id: "CR_2", name: "Security / callback-policy", conclusion: "FAILURE" },
+          ] } },
         },
       },
     },
@@ -303,6 +303,7 @@ test("context collector runs one GraphQL query and check-run requests only when 
 
   assert.equal(result.error, undefined);
   assert.equal(result.repository, "org/repo");
+  assert.match(result.context.fetchedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(calls.length, 3);
   assert.equal(calls[0][1][0], "api");
   assert.equal(calls[0][1][1], "graphql");
@@ -311,7 +312,9 @@ test("context collector runs one GraphQL query and check-run requests only when 
   assert.deepEqual(calls[1][1], ["api", "repos/org/repo/check-runs/CR_2", "--repo", "org/repo"]);
   assert.deepEqual(calls[2][1], ["api", "repos/org/repo/check-runs/CR_2/annotations", "--repo", "org/repo"]);
 
-  assert.deepEqual(result.context, {
+  const { fetchedAt, ...context } = result.context;
+  assert.match(fetchedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(context, {
     linkedIssues: [{ number: 128, title: "Prevent open redirects", state: "OPEN", body: "Keep OAuth return URLs on the current origin.", labels: ["security"] }],
     reviewThreads: [{ path: "src/auth/callback.ts", line: 82, author: "marin", createdAt: "2026-11-12T14:50:00Z", outdated: false, excerpt: "Can we reject protocol-relative URLs here?" }],
     failedCheck: {
@@ -333,7 +336,7 @@ test("context collector bounds threads, issues, annotations, and summary", async
         pullRequest: {
           closingIssuesReferences: { nodes: Array.from({ length: 5 }, (_, index) => ({ number: index, title: "t".repeat(300), state: "OPEN", bodyText: "b".repeat(400), labels: { nodes: [{ name: "l" }] } })) },
           reviewThreads: { nodes: threads },
-          statusCheckRollup: { nodes: [{ __typename: "CheckRun", id: "CR_9", name: "n".repeat(300), conclusion: "FAILURE" }] },
+          statusCheckRollup: { contexts: { nodes: [{ id: "CR_9", name: "n".repeat(300), conclusion: "FAILURE" }] } },
         },
       },
     },
@@ -382,7 +385,7 @@ test("context collector degrades gracefully when GraphQL or check data fails", a
         pullRequest: {
           closingIssuesReferences: { nodes: [] },
           reviewThreads: { nodes: [] },
-          statusCheckRollup: { nodes: [{ __typename: "CheckRun", id: "CR_X", name: "Security", conclusion: "FAILURE" }] },
+          statusCheckRollup: { contexts: { nodes: [{ id: "CR_X", name: "Security", conclusion: "FAILURE" }] } },
         },
       },
     },
@@ -394,7 +397,9 @@ test("context collector degrades gracefully when GraphQL or check data fails", a
       : { exitCode: 1, stdout: "", stderr: "boom" },
   });
   assert.equal(result.error, undefined);
-  assert.deepEqual(result.context, {
+  const { fetchedAt, ...context } = result.context;
+  assert.match(fetchedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(context, {
     linkedIssues: [],
     reviewThreads: [],
     failedCheck: { name: "Security", summary: undefined, annotations: [] },

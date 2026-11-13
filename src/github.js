@@ -222,8 +222,11 @@ query($owner: String!, $name: String!, $number: Int!) {
           comments(first: 3) { nodes { author { login } body createdAt } }
         }
       }
-      statusCheckRollup(first: 100) {
-        nodes { ... on CheckRun { id name conclusion } }
+      statusCheckRollup {
+        state
+        contexts(first: 100) {
+          nodes { ... on CheckRun { id name conclusion } ... on StatusContext { id context state } }
+        }
       }
     }
   }
@@ -291,12 +294,20 @@ export async function collectPullRequestContext({ cwd, repository, number, execu
     })
     .filter((thread) => thread.excerpt || thread.path);
 
-  const failedRun = detailRows(pull.statusCheckRollup?.nodes, 100)
-    .find((run) => run.__typename === "CheckRun" && FAILED_CONCLUSIONS.has(run.conclusion));
+  // The current GitHub schema nests rollup entries under statusCheckRollup
+  // { contexts { nodes } }; older shapes exposed a direct list or { nodes }.
+  // StatusContext entries carry context/state instead of name/conclusion and
+  // no reliable __typename, so failure detection reads both field pairs.
+  const rollupRaw = pull.statusCheckRollup;
+  const rollupNodes = Array.isArray(rollupRaw)
+    ? rollupRaw
+    : detailRows(rollupRaw?.contexts?.nodes ?? rollupRaw?.nodes, 100);
+  const failedRun = rollupNodes
+    .find((run) => run && typeof run === "object" && !Array.isArray(run) && (FAILED_CONCLUSIONS.has(run.conclusion) || FAILED_CONCLUSIONS.has(run.state)));
 
   let failedCheck;
   if (failedRun) {
-    failedCheck = { name: detailText(failedRun.name, 200), summary: undefined, annotations: [] };
+    failedCheck = { name: detailText(failedRun.name || failedRun.context, 200), summary: undefined, annotations: [] };
     const runPath = `repos/${repository}/check-runs/${failedRun.id}`;
     try {
       const runResult = await execute("gh", ["api", runPath, "--repo", repository], { cwd, timeoutMs: 15_000 });
@@ -321,7 +332,11 @@ export async function collectPullRequestContext({ cwd, repository, number, execu
     }
   }
 
-  return { repository, error: undefined, context: { linkedIssues, reviewThreads, failedCheck } };
+  return {
+    repository,
+    error: undefined,
+    context: { fetchedAt: new Date().toISOString(), linkedIssues, reviewThreads, failedCheck },
+  };
 }
 
 export function executeFile(command, args, options = {}) {

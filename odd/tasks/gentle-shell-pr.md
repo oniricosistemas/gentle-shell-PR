@@ -50,9 +50,9 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T17** — S17 — Route: parent — Collect bounded PR timeline events and associated workflow runs (read-only). Tests first. Commit: `e4832a2`.
 - [x] **T18** — S17 — Route: parent — Render the Timeline tab in the inspector. Tests first. Commit: `e4832a2`.
 - [x] **T19** — S17 — Route: parent — Wire timeline into the inspector session; update README. Commit: `e4832a2`.
-- [ ] **T20** — S18 — Route: parent — Repository discovery + cross-repo PR aggregation collector. Tests first.
-- [ ] **T21** — S18 — Route: parent — Local filters (owner, attention) and empty/offline states. Tests first.
-- [ ] **T22** — S18 — Route: parent — Command center panel component and wiring; update README.
+- [x] **T20** — S18 — Route: parent — Repository discovery + cross-repo PR aggregation collector. Tests first. Commit: pending in this batch.
+- [x] **T21** — S18 — Route: parent — Local filters (owner, attention) and empty/offline states. Tests first. Commit: pending in this batch.
+- [x] **T22** — S18 — Route: parent — Command center panel component and wiring; update README. Commit: pending in this batch.
 
 ## Log
 
@@ -76,3 +76,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L18** — "vamos con Artboards del roadmap: v0.4 Merge Timeline y v0.5 Command Center. y Backlog informativo del ultimo review (review-4f721ac74693a312) — deliberadamente no iterado." Orden elegido: backlog primero (T16), luego v0.4 (T17-T19), luego v0.5 (T20-T22).
 - **L19** — T16 outcome: R3-1/R4-3 = glued import line (fixed); R4-2 = Context tab showed failure text while the context query was still pending (fixed with contextPending marker, RED-first test); R3-2, R3-3, R3-4, R4-1 = not actionable after re-derivation (assertion is deterministic behind setImmediate; rollup parsing covers legacy shapes; timestamp handling correct).
 - **L20** — v0.4 verification: `npm run check` 62/62; live collection against oniricosistemas/gentle-shell-PR#18 returned the merged/closed events and 3 workflow runs (head + merge commit). Discovered during live validation: `gh api --repo` is not a valid flag (the check-run/annotations lookups in the context collector were silently degraded by it) and the Actions API accepts one head_sha per request (per-SHA calls, dedup by run id).
+- **L21** — v0.5 verification: `npm run check` 68/68; RED-first for collector, filters, and panel. Command center is a capturing centered panel (Esc closes) because it aggregates several repositories; the sidebar stays single-repo.

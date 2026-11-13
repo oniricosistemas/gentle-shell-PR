@@ -1,6 +1,21 @@
 import { cleanExternalText } from "./github.js";
 
-const TABS = ["Overview", "Checks", "Files", "Context"];
+const TABS = ["Overview", "Checks", "Files", "Context", "Timeline"];
+const TIMELINE_EVENT_LABELS = {
+  review: "Review",
+  merged: "Merged into main",
+  closed: "Closed",
+  ready: "Ready for review",
+  draft: "Converted to draft",
+  dismissed: "Review dismissed",
+};
+const REVIEW_STATE_LABELS = {
+  CHANGES_REQUESTED: "Changes requested",
+  APPROVED: "Approved",
+  DISMISSED: "Dismissed",
+  COMMENTED: "Commented",
+  PENDING: "Pending",
+};
 const COMPACT_CHECK_LINES = 3;
 const ANSI_PATTERN = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\))/g;
 
@@ -215,10 +230,69 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     return lines;
   };
 
+  const timelineLines = (pr) => {
+    const timeline = pr.timeline;
+    if (!timeline) return [{ token: "muted", text: "Timeline is unavailable." }];
+
+    const lines = [];
+    const opened = timeline.openedAt ? `Opened ${new Date(timeline.openedAt).toTimeString().slice(0, 5)}` : "Opened";
+    const merged = timeline.mergedAt ? ` · merged ${new Date(timeline.mergedAt).toTimeString().slice(0, 5)}` : " · not merged";
+    lines.push({ token: "muted", text: `${opened}${merged} · read-only` });
+    const events = Array.isArray(timeline.events) ? timeline.events : [];
+    // A merged pull request always shows its merge row, even when the bounded
+    // event list is empty: mergedAt/mergedBy are authoritative on their own.
+    if (timeline.mergedAt && !events.some((event) => event.kind === "merged")) {
+      events.push({ kind: "merged", at: timeline.mergedAt, author: timeline.mergedBy, commit: undefined });
+    }
+    if (!events.length) {
+      lines.push({ token: "muted", text: "No timeline events yet" });
+    } else {
+      for (const event of events) {
+        const label = TIMELINE_EVENT_LABELS[event.kind] || event.kind;
+        const time = event.at ? new Date(event.at).toTimeString().slice(0, 5) : "";
+        const suffix = time ? ` · ${time}` : "";
+        const token = event.kind === "merged" ? "success"
+          : event.kind === "review" && event.state === "CHANGES_REQUESTED" ? "error"
+          : event.kind === "review" && event.state === "APPROVED" ? "success"
+          : event.kind === "review" ? "warning"
+          : "text";
+        if (event.kind === "review") {
+          const reviewState = REVIEW_STATE_LABELS[event.state] || event.state || label;
+          lines.push({ token, text: `${reviewState} · ${event.author || "unknown"}${suffix}` });
+        } else if (event.kind === "merged") {
+          lines.push({ token, text: `${label} · ${event.author || "unknown"}${suffix} · ${String(event.commit ?? "").slice(0, 7) || "commit"}` });
+        } else {
+          lines.push({ token, text: `${label} · ${event.author || "unknown"}${suffix}` });
+        }
+      }
+    }
+
+    lines.push({ token: "muted", text: "" });
+    const runs = Array.isArray(timeline.workflowRuns) ? timeline.workflowRuns : [];
+    lines.push({ token: "text", text: `GitHub Actions · ${runs.length} run${runs.length === 1 ? "" : "s"}`, bold: true });
+    if (!runs.length) {
+      lines.push({ token: "muted", text: "No workflow runs" });
+    } else {
+      for (const run of runs) {
+        const token = run.status === "in_progress" ? "warning"
+          : run.conclusion === "success" ? "success"
+          : run.conclusion === "failure" ? "error"
+          : run.status === "completed" ? "error"
+          : "warning";
+        const icon = run.status === "in_progress" ? "◷" : run.conclusion === "success" ? "✓" : run.status === "completed" ? "×" : "◷";
+        const stateLabel = run.status === "in_progress" ? "Running" : run.conclusion || run.status;
+        const time = run.startedAt ? ` · ${new Date(run.startedAt).toTimeString().slice(0, 5)}` : "";
+        lines.push({ token, text: `${icon} ${run.name || "Workflow"} · ${stateLabel}${time}` });
+      }
+    }
+    return lines;
+  };
+
   const contentLines = (pr, width) => {
     if (activeTabIndex === 1) return checksLines(pr);
     if (activeTabIndex === 2) return filesLines(pr);
     if (activeTabIndex === 3) return contextLines(pr, width);
+    if (activeTabIndex === 4) return timelineLines(pr);
     return overviewLines(pr, width);
   };
 
@@ -324,7 +398,7 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
           contextExpanded = !contextExpanded;
           requestRender();
         }
-      } else if (data === "1" || data === "2" || data === "3" || data === "4") {
+      } else if (data === "1" || data === "2" || data === "3" || data === "4" || data === "5") {
         activeTabIndex = Number(data) - 1;
         scrollOffset = 0;
         requestRender();

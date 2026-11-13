@@ -1,4 +1,4 @@
-import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";
+import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, collectPullRequestTimeline, executeFile } from "./github.js";
 import { createPullRequestInspector } from "./inspector.js";
 import { attachGentleShellRailPanel, createPullRequestPanel } from "./sidebar.js";
 
@@ -17,6 +17,7 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const collectContext = dependencies.collectContext ?? collectPullRequestContext;
+  const collectTimeline = dependencies.collectTimeline ?? collectPullRequestTimeline;
   const execute = dependencies.execute ?? executeFile;
   const matchesKey = dependencies.matchesKey;
   const renderMarkdown = dependencies.renderMarkdown;
@@ -163,6 +164,24 @@ export function createPrSidebarExtension(dependencies = {}) {
               ? { pullRequest: { ...session.state.pullRequest, context: collected.context } }
               : {};
             session.state = { ...session.state, contextPending: false, ...attached };
+          }
+          // Timeline shares the pending window: it also arrives after the
+          // detail and degrades to an unavailable tab on failure.
+          try {
+            const timeline = await collectTimeline({
+              cwd: context.cwd,
+              repository: current.state.repository,
+              number: session.state.pullRequest.number,
+            });
+            if (active === current && current.inspectorSession === session && !timeline.error && timeline.timeline) {
+              session.state = {
+                ...session.state,
+                pullRequest: { ...session.state.pullRequest, timeline: timeline.timeline },
+              };
+              session.component?.setState(session.state);
+            }
+          } catch {
+            // Timeline stays unavailable.
           }
         } catch {
           // Context stays unavailable; the pending marker clears.

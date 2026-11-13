@@ -309,8 +309,8 @@ test("context collector runs one GraphQL query and check-run requests only when 
   assert.equal(calls[0][1][1], "graphql");
   assert.equal(calls[0][1][2], "-f");
   assert.match(calls[0][1][3], /^query=/);
-  assert.deepEqual(calls[1][1], ["api", "repos/org/repo/check-runs/CR_2", "--repo", "org/repo"]);
-  assert.deepEqual(calls[2][1], ["api", "repos/org/repo/check-runs/CR_2/annotations", "--repo", "org/repo"]);
+  assert.deepEqual(calls[1][1], ["api", "repos/org/repo/check-runs/CR_2"]);
+  assert.deepEqual(calls[2][1], ["api", "repos/org/repo/check-runs/CR_2/annotations"]);
 
   const { fetchedAt, ...context } = result.context;
   assert.match(fetchedAt, /^\d{4}-\d{2}-\d{2}T/);
@@ -404,4 +404,109 @@ test("context collector degrades gracefully when GraphQL or check data fails", a
     reviewThreads: [],
     failedCheck: { name: "Security", summary: undefined, annotations: [] },
   });
+});
+
+test("timeline collector runs one GraphQL query plus workflow-run requests only for known head sha", async () => {
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          createdAt: "2026-11-12T13:08:00Z",
+          mergedAt: "2026-11-12T14:42:00Z",
+          mergedBy: { login: "lmsastre" },
+          headRefName: "feat/pr-timeline",
+          headRefOid: "e9b42af000000000000000000000000000000000",
+          timelineItems: { nodes: [
+            { __typename: "PullRequestReview", state: "CHANGES_REQUESTED", submittedAt: "2026-11-12T13:26:00Z", author: { login: "gentle-review" } },
+            { __typename: "PullRequestReview", state: "APPROVED", submittedAt: "2026-11-12T14:38:00Z", author: { login: "gentle-review" } },
+            { __typename: "MergedEvent", createdAt: "2026-11-12T14:42:00Z", actor: { login: "lmsastre" }, commit: { oid: "e9b42af111111111111111111111111111111111" } },
+            { __typename: "IssueComment", body: "not a timeline entry we request", createdAt: "2026-11-12T13:30:00Z" },
+          ] },
+        },
+      },
+    },
+  };
+  const calls = [];
+  const result = await github.collectPullRequestTimeline({
+    cwd: "/workspace/project", repository: "org/repo", number: 51,
+    execute: async (_command, args) => {
+      calls.push(args);
+      if (args[1] === "graphql") return { exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" };
+      if (args[1]?.startsWith("repos/org/repo/actions/runs?head_sha=e9b42af000000000000000000000000000000000&")) {
+        return { exitCode: 0, stdout: JSON.stringify({ workflow_runs: [
+          { id: 1, name: "Deploy production", status: "in_progress", conclusion: null, head_sha: "e9b42af000000000000000000000000000000000", created_at: "2026-11-12T14:42:00Z" },
+        ], total_count: 1 }), stderr: "" };
+      }
+      if (args[1]?.startsWith("repos/org/repo/actions/runs?head_sha=e9b42af111111111111111111111111111111111&")) {
+        return { exitCode: 0, stdout: JSON.stringify({ workflow_runs: [
+          { id: 2, name: "Deploy production", status: "completed", conclusion: "success", head_sha: "e9b42af111111111111111111111111111111111", created_at: "2026-11-12T14:41:00Z" },
+          { id: 3, name: "Unrelated", status: "completed", conclusion: "failure", head_sha: "beef0000000000000000000000000000000000000", created_at: "2026-11-12T10:00:00Z" },
+        ], total_count: 2 }), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  // One Actions call per relevant SHA: the API rejects comma-joined head_sha.
+  assert.equal(calls.length, 3);
+  assert.equal(calls[1][1], "repos/org/repo/actions/runs?head_sha=e9b42af000000000000000000000000000000000&per_page=20");
+  assert.equal(calls[2][1], "repos/org/repo/actions/runs?head_sha=e9b42af111111111111111111111111111111111&per_page=20");
+
+  const { fetchedAt, ...timeline } = result.timeline;
+  assert.match(fetchedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(timeline, {
+    openedAt: "2026-11-12T13:08:00Z",
+    mergedAt: "2026-11-12T14:42:00Z",
+    mergedBy: "lmsastre",
+    events: [
+      { kind: "review", state: "CHANGES_REQUESTED", at: "2026-11-12T13:26:00Z", author: "gentle-review" },
+      { kind: "review", state: "APPROVED", at: "2026-11-12T14:38:00Z", author: "gentle-review" },
+      { kind: "merged", at: "2026-11-12T14:42:00Z", author: "lmsastre", commit: "e9b42af111111111111111111111111111111111" },
+    ],
+    workflowRuns: [
+      { name: "Deploy production", status: "in_progress", conclusion: undefined, startedAt: "2026-11-12T14:42:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+      { name: "Deploy production", status: "completed", conclusion: "success", startedAt: "2026-11-12T14:41:00Z", headSha: "e9b42af111111111111111111111111111111111" },
+    ],
+  });
+});
+
+test("timeline collector bounds events and runs and degrades gracefully", async () => {
+  const failing = async () => ({ exitCode: 1, stdout: "", stderr: "boom" });
+  assert.deepEqual(
+    await github.collectPullRequestTimeline({ cwd: "/w", repository: "org/repo", number: 5, execute: failing }),
+    { repository: "org/repo", error: "Could not load pull request timeline", timeline: undefined },
+  );
+
+  const badJson = async (_command, args) => args[1] === "graphql"
+    ? { exitCode: 0, stdout: "not json", stderr: "" }
+    : { exitCode: 0, stdout: "", stderr: "" };
+  assert.deepEqual(
+    await github.collectPullRequestTimeline({ cwd: "/w", repository: "org/repo", number: 5, execute: badJson }),
+    { repository: "org/repo", error: "GitHub returned invalid pull request timeline data", timeline: undefined },
+  );
+
+  // Workflow-run failures degrade to an empty run list without breaking the timeline.
+  const events = Array.from({ length: 14 }, (_, index) => ({
+    __typename: "PullRequestReview", state: "APPROVED", submittedAt: `2026-11-12T13:${String(index).padStart(2, "0")}:00Z`, author: { login: `user${index}` },
+  }));
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          createdAt: "2026-11-12T13:08:00Z", mergedAt: null, mergedBy: null, headRefName: "a", headRefOid: "b".repeat(40),
+          timelineItems: { nodes: events },
+        },
+      },
+    },
+  };
+  const result = await github.collectPullRequestTimeline({
+    cwd: "/w", repository: "org/repo", number: 9,
+    execute: async (_command, args) => args[1] === "graphql"
+      ? { exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" }
+      : { exitCode: 1, stdout: "", stderr: "boom" },
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.timeline.events.length, 10);
+  assert.deepEqual(result.timeline.workflowRuns, []);
 });

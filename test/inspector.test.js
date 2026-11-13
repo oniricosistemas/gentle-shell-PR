@@ -331,3 +331,122 @@ test("key 4 selects the Context tab and Enter toggles the failed-check excerpt",
   assert.doesNotMatch(collapsedAgain, /log line 6/);
   assert.ok(renders.length >= 3);
 });
+
+test("the inspector exposes a Timeline tab with lifecycle events and workflow runs", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt: "2026-11-12T13:08:00Z",
+        mergedAt: "2026-11-12T14:42:00Z",
+        mergedBy: "lmsastre",
+        events: [
+          { kind: "review", state: "CHANGES_REQUESTED", at: "2026-11-12T13:26:00Z", author: "gentle-review" },
+          { kind: "review", state: "APPROVED", at: "2026-11-12T14:38:00Z", author: "gentle-review" },
+          { kind: "merged", at: "2026-11-12T14:42:00Z", author: "lmsastre", commit: "e9b42af111111111111111111111111111111111" },
+        ],
+        workflowRuns: [
+          { name: "Deploy production", status: "in_progress", conclusion: undefined, startedAt: "2026-11-12T14:42:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+        ],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+
+  inspector.setTab("Timeline");
+  assert.equal(inspector.getActiveTab(), "Timeline");
+  const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+
+  assert.match(lines, /\[Timeline\]/);
+  assert.match(lines, /Opened 13:08/);
+  assert.match(lines, /Changes requested · gentle-review · 13:26/);
+  assert.match(lines, /Approved · gentle-review · 14:38/);
+  assert.match(lines, /Merged into main · lmsastre · 14:42 · e9b42af/);
+  assert.match(lines, /GitHub Actions · 1 run/);
+  assert.match(lines, /◷ Deploy production · Running · 14:42/);
+});
+
+test("the Timeline tab degrades gracefully without timeline data", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+  });
+  inspector.setTab("Timeline");
+  assert.match(inspector.render(60).join("\n"), /Timeline is unavailable/);
+
+  const empty = {
+    ...detail,
+    pullRequest: { ...detail.pullRequest, timeline: { fetchedAt: "2026-11-12T15:08:00Z", openedAt: "2026-11-12T13:08:00Z", mergedAt: undefined, mergedBy: "", events: [], workflowRuns: [] } },
+  };
+  const emptyInspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: empty,
+  });
+  emptyInspector.setTab("Timeline");
+  const lines = emptyInspector.render(60).join("\n");
+  assert.match(lines, /No timeline events yet/);
+  assert.match(lines, /No workflow runs/);
+});
+
+test("key 5 selects the Timeline tab and a running deployment stays visible", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt: "2026-11-12T13:08:00Z",
+        mergedAt: "2026-11-12T14:42:00Z",
+        mergedBy: "lmsastre",
+        events: [],
+        workflowRuns: [{ name: "Deploy production", status: "in_progress", conclusion: undefined, startedAt: "2026-11-12T14:42:00Z", headSha: "a".repeat(40) }],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+  inspector.handleInput("5");
+  assert.equal(inspector.getActiveTab(), "Timeline");
+  const lines = inspector.render(60).join("\n");
+  assert.match(lines, /Merged into main · lmsastre/);
+  assert.match(lines, /Deploy production/);
+});
+
+test("clicking a tab title switches tabs and clicking the active one is a no-op", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+  });
+
+  const plainLines = () => inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+  const checksX = plainLines()[1].indexOf("Checks");
+  assert.ok(checksX > 0, "the Checks label must be visible on the tabs row");
+
+  const result = inspector.handleMouse({ type: "click", button: "left", x: checksX + 1, y: 1, width: 96, height: 20 });
+  assert.deepEqual(result, { handled: true, render: true });
+  assert.equal(inspector.getActiveTab(), "Checks");
+
+  // Clicking the already-active tab keeps the tab without extra renders.
+  const activeX = plainLines()[1].indexOf("Checks");
+  assert.deepEqual(
+    inspector.handleMouse({ type: "click", button: "left", x: activeX + 1, y: 1, width: 96, height: 20 }),
+    { handled: true, render: false },
+  );
+  assert.equal(inspector.getActiveTab(), "Checks");
+
+  // Clicks outside the tab row stay unhandled for the tabs themselves.
+  assert.equal(inspector.handleMouse({ type: "click", button: "left", x: 3, y: 5, width: 96, height: 20 }), undefined);
+  assert.equal(inspector.getActiveTab(), "Checks");
+});

@@ -1,5 +1,6 @@
-import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";import { createPullRequestInspector } from "./inspector.js";
-import { attachGentleShellRailPanel, createPullRequestPanel } from "./sidebar.js";
+import { collectPullRequestContext, collectPullRequestDetail, collectPullRequestInbox, collectPullRequests, collectPullRequestTimeline, executeFile } from "./github.js";
+import { createPullRequestInspector } from "./inspector.js";
+import { attachGentleShellRailPanel, createCommandCenterPanel, createPullRequestPanel } from "./sidebar.js";
 
 const UI_KEY = "gentle-shell-pr";
 const POLL_INTERVAL_MS = 60_000;
@@ -16,6 +17,8 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const collectContext = dependencies.collectContext ?? collectPullRequestContext;
+  const collectTimeline = dependencies.collectTimeline ?? collectPullRequestTimeline;
+  const collectInbox = dependencies.collectInbox ?? collectPullRequestInbox;
   const execute = dependencies.execute ?? executeFile;
   const matchesKey = dependencies.matchesKey;
   const renderMarkdown = dependencies.renderMarkdown;
@@ -147,7 +150,9 @@ export function createPrSidebarExtension(dependencies = {}) {
       if (active === current && current.inspectorSession === session && session.state.pullRequest) {
         // Show the loaded detail immediately; review context is optional and
         // arrives separately so a slow GraphQL query cannot hold the
-        // inspector on the loading state (review follow-up R4-1).
+        // inspector on the loading state (review follow-up R4-1). The Context
+        // tab distinguishes this pending window from a real failure.
+        session.state = { ...session.state, contextPending: true };
         session.component?.setState(session.state);
         try {
           const collected = await collectContext({
@@ -155,14 +160,35 @@ export function createPrSidebarExtension(dependencies = {}) {
             repository: current.state.repository,
             number: session.state.pullRequest.number,
           });
-          if (active === current && current.inspectorSession === session && !collected.error && collected.context) {
-            session.state = {
-              ...session.state,
-              pullRequest: { ...session.state.pullRequest, context: collected.context },
-            };
+          if (active === current && current.inspectorSession === session) {
+            const attached = !collected.error && collected.context
+              ? { pullRequest: { ...session.state.pullRequest, context: collected.context } }
+              : {};
+            session.state = { ...session.state, contextPending: false, ...attached };
+          }
+          // Timeline shares the pending window: it also arrives after the
+          // detail and degrades to an unavailable tab on failure.
+          try {
+            const timeline = await collectTimeline({
+              cwd: context.cwd,
+              repository: current.state.repository,
+              number: session.state.pullRequest.number,
+            });
+            if (active === current && current.inspectorSession === session && !timeline.error && timeline.timeline) {
+              session.state = {
+                ...session.state,
+                pullRequest: { ...session.state.pullRequest, timeline: timeline.timeline },
+              };
+              session.component?.setState(session.state);
+            }
+          } catch {
+            // Timeline stays unavailable.
           }
         } catch {
-          // Context stays unavailable.
+          // Context stays unavailable; the pending marker clears.
+          if (active === current && current.inspectorSession === session) {
+            session.state = { ...session.state, contextPending: false };
+          }
         }
       }
       if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
@@ -245,6 +271,51 @@ export function createPrSidebarExtension(dependencies = {}) {
         if (active === current && current.visible) void refresh(current);
       }, POLL_INTERVAL_MS);
       current.timerId?.unref?.();
+    });
+
+    pi.registerCommand("pr-inbox", {
+      description: "Open the cross-repository pull request command center",
+      handler: async (_args, context) => {
+        if (context.mode !== "tui" || typeof context.ui.custom !== "function") {
+          context.ui.notify("Pull request inbox requires interactive TUI mode", "warning");
+          return;
+        }
+        const inbox = await collectInbox({ cwd: context.cwd });
+        if (inbox.error) {
+          context.ui.notify(inbox.error, "warning");
+          return;
+        }
+        try {
+          await context.ui.custom((tui, theme, keybindings, done) => {
+            const panel = createCommandCenterPanel({ tui, theme, initialState: inbox });
+            return {
+              render: panel.render,
+              invalidate: panel.invalidate,
+              digest: panel.digest,
+              handleInput(data) {
+                const cancel = keybindings?.matches?.(data, "tui.select.cancel") === true;
+                if (cancel || data === "\u001b" || data === "\u0003") {
+                  done(undefined);
+                  return;
+                }
+                if (data === "f") panel.cycleOwner();
+                else if (data === "a") panel.cycleAttention();
+              },
+            };
+          }, {
+            overlay: true,
+            overlayOptions: {
+              anchor: "center",
+              width: 60,
+              minWidth: 32,
+              maxHeight: "70%",
+              margin: 1,
+            },
+          });
+        } catch {
+          context.ui.notify("Pull request inbox unavailable", "warning");
+        }
+      },
     });
 
     pi.on("session_shutdown", () => stop());

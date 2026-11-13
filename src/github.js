@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { dirname } from "node:path";
 
 const PR_FIELDS = [
   "number",
@@ -91,6 +92,7 @@ function normalizeChecks(rollup) {
 export function normalizePullRequest(pr) {
   return {
     number: Number(pr.number),
+    author: cleanExternalText(pr.author?.login) || "unknown",
     title: cleanExternalText(pr.title) || "Untitled pull request",
     url: typeof pr.url === "string" ? pr.url : "",
     headBranch: typeof pr.headRefName === "string" ? pr.headRefName : "unknown",
@@ -310,7 +312,7 @@ export async function collectPullRequestContext({ cwd, repository, number, execu
     failedCheck = { name: detailText(failedRun.name || failedRun.context, 200), summary: undefined, annotations: [] };
     const runPath = `repos/${repository}/check-runs/${failedRun.id}`;
     try {
-      const runResult = await execute("gh", ["api", runPath, "--repo", repository], { cwd, timeoutMs: 15_000 });
+      const runResult = await execute("gh", ["api", runPath], { cwd, timeoutMs: 15_000 });
       if (runResult.exitCode === 0) {
         const run = JSON.parse(runResult.stdout);
         failedCheck.summary = detailMarkdown(run?.output?.summary, 1000) || undefined;
@@ -319,7 +321,7 @@ export async function collectPullRequestContext({ cwd, repository, number, execu
       // A failed check excerpt degrades to the name alone.
     }
     try {
-      const annotationsResult = await execute("gh", ["api", `${runPath}/annotations`, "--repo", repository], { cwd, timeoutMs: 15_000 });
+      const annotationsResult = await execute("gh", ["api", `${runPath}/annotations`], { cwd, timeoutMs: 15_000 });
       if (annotationsResult.exitCode === 0) {
         failedCheck.annotations = detailRows(JSON.parse(annotationsResult.stdout), 10).map((annotation) => ({
           message: detailText(annotation.message, 200),
@@ -337,6 +339,229 @@ export async function collectPullRequestContext({ cwd, repository, number, execu
     error: undefined,
     context: { fetchedAt: new Date().toISOString(), linkedIssues, reviewThreads, failedCheck },
   };
+}
+
+const PR_TIMELINE_QUERY = `
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      createdAt
+      mergedAt
+      mergedBy { login }
+      headRefName
+      headRefOid
+      timelineItems(first: 40, itemTypes: [PULL_REQUEST_REVIEW, MERGED_EVENT, CLOSED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, REVIEW_DISMISSED_EVENT]) {
+        nodes {
+          __typename
+          ... on PullRequestReview { state submittedAt author { login } }
+          ... on MergedEvent { createdAt actor { login } commit { oid } }
+          ... on ClosedEvent { createdAt actor { login } }
+        }
+      }
+    }
+  }
+}`;
+
+const TIMELINE_EVENT_LIMIT = 10;
+const TIMELINE_RUN_LIMIT = 20;
+
+/**
+ * Bounded read-only merge timeline: PR lifecycle events plus GitHub Actions
+ * runs associated with the pull request's head SHA. All failures degrade
+ * without breaking the caller; no repository mutations are performed.
+ */
+export async function collectPullRequestTimeline({ cwd, repository, number, execute = executeFile }) {
+  const [owner, name] = String(repository ?? "").split("/");
+  if (!owner || !name) {
+    return { repository, error: "Could not load pull request timeline", timeline: undefined };
+  }
+
+  let result;
+  try {
+    result = await execute("gh", [
+      "api", "graphql",
+      "-f", `query=${PR_TIMELINE_QUERY}`,
+      "-f", `owner=${owner}`,
+      "-f", `name=${name}`,
+      "-F", `number=${Number(number)}`,
+    ], { cwd, timeoutMs: 15_000 });
+  } catch {
+    return { repository, error: "Could not load pull request timeline", timeline: undefined };
+  }
+  if (result.exitCode !== 0) {
+    return { repository, error: "Could not load pull request timeline", timeline: undefined };
+  }
+
+  let pull;
+  try {
+    pull = JSON.parse(result.stdout)?.data?.repository?.pullRequest;
+    if (!pull || typeof pull !== "object") throw new Error("Invalid timeline");
+  } catch {
+    return { repository, error: "GitHub returned invalid pull request timeline data", timeline: undefined };
+  }
+
+  const events = detailRows(pull.timelineItems?.nodes, 40)
+    .filter((node) => node.__typename !== "IssueComment" && (node.submittedAt || node.createdAt))
+    .slice(0, TIMELINE_EVENT_LIMIT)
+    .map((node) => {
+      if (node.__typename === "PullRequestReview") {
+        return { kind: "review", state: detailText(node.state, 30), at: timestamp(node.submittedAt), author: detailText(node.author?.login) };
+      }
+      if (node.__typename === "MergedEvent") {
+        return { kind: "merged", at: timestamp(node.createdAt), author: detailText(node.actor?.login), commit: detailText(node.commit?.oid, 64) };
+      }
+      if (node.__typename === "ClosedEvent") {
+        return { kind: "closed", at: timestamp(node.createdAt), author: detailText(node.actor?.login) };
+      }
+      if (node.__typename === "ReadyForReviewEvent") {
+        return { kind: "ready", at: timestamp(node.createdAt), author: detailText(node.actor?.login) };
+      }
+      if (node.__typename === "ConvertToDraftEvent") {
+        return { kind: "draft", at: timestamp(node.createdAt), author: detailText(node.actor?.login) };
+      }
+      if (node.__typename === "ReviewDismissedEvent") {
+        return { kind: "dismissed", at: timestamp(node.createdAt), author: detailText(node.actor?.login) };
+      }
+      return undefined;
+    })
+    .filter(Boolean);
+
+  const headSha = detailText(pull.headRefOid, 64);
+  // Deployment runs follow the merge commit once the PR lands, so runs keyed
+  // on either the pull request's head SHA or its merge commit SHA belong here.
+  const relevantShas = new Set(
+    [headSha, events.find((event) => event.kind === "merged")?.commit]
+      .filter((sha) => typeof sha === "string" && /^[0-9a-f]{40}$/i.test(sha)),
+  );
+  const workflowRuns = [];
+  if (relevantShas.size > 0) {
+    // The Actions API accepts a single head_sha per request, so the pull
+    // request head and its merge commit are queried separately (max 2 calls).
+    const seen = new Set();
+    for (const sha of relevantShas) {
+      try {
+        const runsResult = await execute("gh", [
+          "api", `repos/${repository}/actions/runs?head_sha=${sha}&per_page=${TIMELINE_RUN_LIMIT}`,
+        ], { cwd, timeoutMs: 15_000 });
+        if (runsResult.exitCode !== 0) continue;
+        const runs = JSON.parse(runsResult.stdout)?.workflow_runs;
+        for (const run of detailRows(runs, TIMELINE_RUN_LIMIT)) {
+          const runSha = detailText(run.head_sha, 64);
+          if (!relevantShas.has(runSha)) continue;
+          const runId = typeof run.id === "number" || typeof run.id === "string" ? String(run.id) : `${runSha}:${run.name}`;
+          if (seen.has(runId)) continue;
+          seen.add(runId);
+          workflowRuns.push({
+            name: detailText(run.name || run.display_title, 200),
+            status: detailText(run.status, 30),
+            conclusion: typeof run.conclusion === "string" ? detailText(run.conclusion, 30) : undefined,
+            startedAt: timestamp(run.created_at),
+            headSha: runSha,
+          });
+        }
+      } catch {
+        // Workflow runs are optional context; an empty list degrades cleanly.
+      }
+    }
+  }
+
+  return {
+    repository,
+    error: undefined,
+    timeline: {
+      fetchedAt: new Date().toISOString(),
+      openedAt: timestamp(pull.createdAt),
+      mergedAt: timestamp(pull.mergedAt),
+      mergedBy: detailText(pull.mergedBy?.login),
+      events,
+      workflowRuns,
+    },
+  };
+}
+
+const INBOX_REPOSITORY_LIMIT = 8;
+
+/**
+ * Cross-repository pull request inbox (v0.5 Command Center). Discovery walks
+ * the workspace for sibling Git repositories, reads each origin remote, and
+ * aggregates a bounded list of open pull requests per repository. Discovery
+ * is local-only; GitHub queries are the same bounded read-only list the
+ * sidebar uses. Every failure degrades without breaking the caller.
+ */
+export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5 }) {
+  const repositories = [];
+  try {
+    // Sibling workspaces live next to the current repository, so discovery
+    // walks its parent directory.
+    const searchRoot = dirname(String(cwd ?? "."));
+    const findResult = await execute("find", [
+      searchRoot, "-maxdepth", "2", "-name", ".git", "-type", "d",
+    ], { cwd, timeoutMs: 10_000 });
+    if (findResult.exitCode === 0) {
+      const roots = String(findResult.stdout)
+        .split("\n")
+        .map((line) => line.trim().replace(/\/.git$/, ""))
+        .filter(Boolean);
+      for (const root of roots.slice(0, INBOX_REPOSITORY_LIMIT * 2)) {
+        // Dependency directories are never probed.
+        if (root.includes("/node_modules/")) continue;
+        const remoteResult = await execute("git", ["remote", "get-url", "origin"], { cwd: root, timeoutMs: 10_000 });
+        const repository = remoteResult.exitCode === 0 ? parseGitHubRemote(remoteResult.stdout) : undefined;
+        if (repository) {
+          repositories.push({
+            repository,
+            cwd: root,
+            current: root === String(cwd ?? "."),
+          });
+        }
+      }
+    }
+  } catch {
+    // Offline workspace discovery degrades to an empty inbox, not an error.
+  }
+  const boundedRepositories = repositories.slice(0, INBOX_REPOSITORY_LIMIT);
+
+  const inbox = [];
+  for (const { repository, cwd: root } of boundedRepositories) {
+    const pullRequestsResult = await collectPullRequests({ cwd: root, execute, limit });
+    inbox.push({
+      repository,
+      cwd: root,
+      error: pullRequestsResult.error,
+      pullRequests: pullRequestsResult.error ? [] : pullRequestsResult.pullRequests,
+    });
+  }
+
+  return {
+    repositories: boundedRepositories,
+    inbox,
+    error: undefined,
+  };
+}
+
+function attentionMatches(pullRequest, attention) {
+  if (attention === "review_requested") {
+    return pullRequest.review === "waiting";
+  }
+  if (attention === "failed_ci") {
+    return pullRequest.checks?.failed > 0;
+  }
+  return true;
+}
+
+/**
+ * Local filter views over an aggregated inbox. Filters never touch GitHub or
+ * change repository state: they only shape what the panel renders. Repository
+ * groups are preserved so the panel can keep per-repo sections.
+ */
+export function filterPullRequestInbox(inbox, { owner, attention } = {}) {
+  if (!Array.isArray(inbox)) return [];
+  return inbox.map((entry) => ({
+    ...entry,
+    pullRequests: (entry.pullRequests ?? []).filter((pr) =>
+      (!owner || pr.author === owner)
+      && attentionMatches(pr, attention)),
+  }));
 }
 
 export function executeFile(command, args, options = {}) {

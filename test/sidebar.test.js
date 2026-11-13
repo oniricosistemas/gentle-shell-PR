@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   GENTLE_SHELL_SIDEBAR_STATE,
   attachGentleShellRailPanel,
+  createCommandCenterPanel,
   createPullRequestPanel,
   detectGentleShellRailLayout,
 } from "../src/sidebar.js";
@@ -554,4 +555,69 @@ test("the shared rail wrapper degrades digest failures and ignores out-of-bounds
 
   handle.dispose();
   assert.equal(terminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer"), original);
+});
+
+test("the command center panel renders the aggregated inbox with filters and empty states", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "oniricosistemas/gentle-shell-PR", cwd: "/w/pr-flow", current: true, error: undefined, pullRequests: [
+          { number: 58, title: "Add cross-repo inbox filters", author: "lmsastre", headBranch: "a", review: "waiting", merge: "blocked", checks: { passed: 2, failed: 0, pending: 0, total: 2 } },
+        ] },
+        { repository: "owner/engram", cwd: "/w/engram", error: undefined, pullRequests: [
+          { number: 128, title: "Deduplicate memory observations", author: "octo", headBranch: "d", review: "approved", merge: "ready", checks: { passed: 0, failed: 1, pending: 0, total: 1 } },
+        ] },
+        { repository: "owner/offline", cwd: "/w/offline", error: "Could not load pull requests", pullRequests: [] },
+      ],
+    },
+  });
+
+  const lines = panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  assert.match(lines, /Command center · 3 repositories/);
+  assert.match(lines, /Review requested · 1/);
+  assert.match(lines, /Failed CI · 1/);
+  assert.match(lines, /oniricosistemas\/gentle-shell-PR · current/);
+  assert.match(lines, /#58 Add cross-repo inbox filters/);
+  assert.match(lines, /owner\/engram/);
+  assert.match(lines, /#128 Deduplicate memory observations/);
+  assert.match(lines, /owner\/offline · could not load pull requests/);
+  assert.match(lines, /owner/);
+  assert.match(lines, /failed CI/);
+  assert.match(lines, /All owners/);
+});
+
+test("the command center panel cycles filters locally without touching state", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 1, title: "A", author: "lmsastre", headBranch: "x", review: "waiting", merge: "blocked", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+
+  // Owner cycle: All owners -> lmsastre -> All owners (fixture has one author).
+  const plain = () => panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  panel.cycleOwner();
+  assert.match(plain(), /Filter: lmsastre/);
+  assert.match(plain(), /#1 A/);
+  panel.cycleOwner();
+  assert.match(plain(), /Filter: All owners/);
+
+  // Attention cycle: All -> review requested -> failed CI -> All. The fixture's
+  // pull request is waiting for review, so failed CI excludes it.
+  panel.cycleAttention();
+  assert.match(plain(), /#1 A/);
+  panel.cycleAttention();
+  assert.match(plain(), /No pull requests match the current filters/);
+
+  // Filter changes never mutate the source inbox.
+  assert.deepEqual(panel.getInbox()[0].pullRequests.length, 1);
 });

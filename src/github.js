@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { dirname } from "node:path";
 
 const PR_FIELDS = [
   "number",
@@ -91,6 +92,7 @@ function normalizeChecks(rollup) {
 export function normalizePullRequest(pr) {
   return {
     number: Number(pr.number),
+    author: cleanExternalText(pr.author?.login) || "unknown",
     title: cleanExternalText(pr.title) || "Untitled pull request",
     url: typeof pr.url === "string" ? pr.url : "",
     headBranch: typeof pr.headRefName === "string" ? pr.headRefName : "unknown",
@@ -475,6 +477,91 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
       workflowRuns,
     },
   };
+}
+
+const INBOX_REPOSITORY_LIMIT = 8;
+
+/**
+ * Cross-repository pull request inbox (v0.5 Command Center). Discovery walks
+ * the workspace for sibling Git repositories, reads each origin remote, and
+ * aggregates a bounded list of open pull requests per repository. Discovery
+ * is local-only; GitHub queries are the same bounded read-only list the
+ * sidebar uses. Every failure degrades without breaking the caller.
+ */
+export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5 }) {
+  const repositories = [];
+  try {
+    // Sibling workspaces live next to the current repository, so discovery
+    // walks its parent directory.
+    const searchRoot = dirname(String(cwd ?? "."));
+    const findResult = await execute("find", [
+      searchRoot, "-maxdepth", "2", "-name", ".git", "-type", "d",
+    ], { cwd, timeoutMs: 10_000 });
+    if (findResult.exitCode === 0) {
+      const roots = String(findResult.stdout)
+        .split("\n")
+        .map((line) => line.trim().replace(/\/.git$/, ""))
+        .filter(Boolean);
+      for (const root of roots.slice(0, INBOX_REPOSITORY_LIMIT * 2)) {
+        // Dependency directories are never probed.
+        if (root.includes("/node_modules/")) continue;
+        const remoteResult = await execute("git", ["remote", "get-url", "origin"], { cwd: root, timeoutMs: 10_000 });
+        const repository = remoteResult.exitCode === 0 ? parseGitHubRemote(remoteResult.stdout) : undefined;
+        if (repository) {
+          repositories.push({
+            repository,
+            cwd: root,
+            current: root === String(cwd ?? "."),
+          });
+        }
+      }
+    }
+  } catch {
+    // Offline workspace discovery degrades to an empty inbox, not an error.
+  }
+  const boundedRepositories = repositories.slice(0, INBOX_REPOSITORY_LIMIT);
+
+  const inbox = [];
+  for (const { repository, cwd: root } of boundedRepositories) {
+    const pullRequestsResult = await collectPullRequests({ cwd: root, execute, limit });
+    inbox.push({
+      repository,
+      cwd: root,
+      error: pullRequestsResult.error,
+      pullRequests: pullRequestsResult.error ? [] : pullRequestsResult.pullRequests,
+    });
+  }
+
+  return {
+    repositories: boundedRepositories,
+    inbox,
+    error: undefined,
+  };
+}
+
+function attentionMatches(pullRequest, attention) {
+  if (attention === "review_requested") {
+    return pullRequest.review === "waiting";
+  }
+  if (attention === "failed_ci") {
+    return pullRequest.checks?.failed > 0;
+  }
+  return true;
+}
+
+/**
+ * Local filter views over an aggregated inbox. Filters never touch GitHub or
+ * change repository state: they only shape what the panel renders. Repository
+ * groups are preserved so the panel can keep per-repo sections.
+ */
+export function filterPullRequestInbox(inbox, { owner, attention } = {}) {
+  if (!Array.isArray(inbox)) return [];
+  return inbox.map((entry) => ({
+    ...entry,
+    pullRequests: (entry.pullRequests ?? []).filter((pr) =>
+      (!owner || pr.author === owner)
+      && attentionMatches(pr, attention)),
+  }));
 }
 
 export function executeFile(command, args, options = {}) {

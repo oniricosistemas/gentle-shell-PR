@@ -94,6 +94,7 @@ Files intentionally does not render patches or a second diff viewer because Gent
 
 | Command | Action |
 | --- | --- |
+| `/pr-inbox` | Open the v0.5 cross-repository command center: sibling repositories, their open pull requests, and local attention filters (`f` owner, `a` attention, `Esc` close). Filters are pure local views and never change repository state. |
 | `/pr-refresh` | Refresh pull request data immediately. |
 | `/pr-sidebar` | Show or hide the sidebar. |
 | `/pr-sidebar-collapse` | Collapse or expand the panel. |

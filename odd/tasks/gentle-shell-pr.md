@@ -22,6 +22,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 15. **S15** — "Faster diagnosis; a denser, noisier rail. Local notifications only · no repository mutations": el contexto es estrictamente read-only, sin mutaciones de repositorio; los fallos de coleccion degradan sin romper el inspector.
 16. **S16** — Todo el contenido externo (issues, comentarios de review, anotaciones de checks) se sanitiza con el mismo criterio del resto del paquete y se presenta acotado (issues: max 3; threads sin resolver: max 8; anotaciones: max 10 con mensajes de max 200 caracteres; excerpt del resumen del check: max 1000 caracteres).
 
+20. **S20** — "cuando se abre el modal con el pr, los titulos de los tabs no son clickeables, deberian serlo no? para no obligar a usar el tab": los titulos de las pestañas del inspector son clickeables ademas de las teclas 1-5 y Tab.
 17. **S17** — "vamos con Artboards del roadmap: v0.4 Merge Timeline": el inspector muestra una pestaña Timeline con la historia del PR (apertura, resultados de CI con timestamps, decisiones de review, merge) y los workflow runs de GitHub Actions asociados (incluidos los que siguen corriendo despues del merge). Read-only, sin mutaciones.
 18. **S18** — "v0.5 Command Center": inbox cross-repositorio con discovery de repositorios del workspace, agregacion de PRs, filtros locales (owner, atencion: review requested / failed CI) y estados vacios/offline. "Filters are local views; they never change repository state."
 19. **S19** — Backlog informativo del review `review-4f721ac74693a312` (7 hallazgos en extension.js, github.js y su test): re-derivados desde el codigo y corregidos los que sean reales, como ronda unica (no iterar review).
@@ -54,6 +55,10 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T21** — S18 — Route: parent — Local filters (owner, attention) and empty/offline states. Tests first. Commit: pending in this batch.
 - [x] **T22** — S18 — Route: parent — Command center panel component and wiring; update README. Commit: pending in this batch.
 
+## Tasks (continuacion)
+
+- [x] **T23** — S20 — Route: parent — Clickable tab titles in the inspector modal (hit regions per tab label, mouse routing). Tests first. Commit: pending in this batch.
+
 ## Log
 
 - **L1 — "ok, vamos con eso entonces:\n1- crea el repo en github en https://github.com/oniricosistemas\npara que figure en el hub de la web gentlemanprogramming pide esto:\nAdd the gentle-shell-package topic to a public Shell resource repository, or gentle-hub-project to any public community project. Discovery is eventual once configured; no publishing schedule is currently promised.\n\nResource subtype topics are optional: gentle-shell-extension, gentle-shell-theme, gentle-shell-skill, and gentle-shell-prompt. Without one, your listing appears as Resource; no subtype is guessed.\n\n2- enrola el proyecto para que se sincronice con engram cloud\n3- el sidebar debe tomar los colores del theme que este seleccionado"
@@ -77,3 +82,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L19** — T16 outcome: R3-1/R4-3 = glued import line (fixed); R4-2 = Context tab showed failure text while the context query was still pending (fixed with contextPending marker, RED-first test); R3-2, R3-3, R3-4, R4-1 = not actionable after re-derivation (assertion is deterministic behind setImmediate; rollup parsing covers legacy shapes; timestamp handling correct).
 - **L20** — v0.4 verification: `npm run check` 62/62; live collection against oniricosistemas/gentle-shell-PR#18 returned the merged/closed events and 3 workflow runs (head + merge commit). Discovered during live validation: `gh api --repo` is not a valid flag (the check-run/annotations lookups in the context collector were silently degraded by it) and the Actions API accepts one head_sha per request (per-SHA calls, dedup by run id).
 - **L21** — v0.5 verification: `npm run check` 68/68; RED-first for collector, filters, and panel. Command center is a capturing centered panel (Esc closes) because it aggregates several repositories; the sidebar stays single-repo.
+- **L22** — "antes agreguemos algo mas.... cuando se abre el modal con el pr, los titulos de los tabs no son clickeables, deberian serlo no? para no obligar a usar el tab" — nueva tarea T23 antes de la entrega.

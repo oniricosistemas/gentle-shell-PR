@@ -89,6 +89,7 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
   let activeTabIndex = 0;
   let scrollOffset = 0;
   let closeHitRegion;
+  let tabHitRegions = [];
   let markdownErrorReported = false;
   let contextExpanded = false;
 
@@ -314,6 +315,19 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     const bottom = border(`╰${"─".repeat(Math.max(0, boundedWidth - 2))}╯`);
     const lines = [top];
 
+    // Tab titles are clickable: record each label's terminal column range on
+    // the fixed tabs row (line 1, after the "│ " gutter) for mouse routing.
+    let tabOffset = 0;
+    tabHitRegions = TABS.map((tab, index) => {
+      const label = index === activeTabIndex ? `[${tab}]` : ` ${tab} `;
+      const region = {
+        index,
+        startX: tabOffset + 2,
+        endX: Math.min(tabOffset + 2 + label.length, innerWidth + 2),
+      };
+      tabOffset += label.length + 2;
+      return region;
+    });
     const tabsText = TABS.map((tab, index) => index === activeTabIndex ? `[${tab}]` : ` ${tab} `).join("  ");
     lines.push(row("accent", tabsText));
     lines.push(row("border", "─".repeat(innerWidth)));
@@ -405,7 +419,15 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
       }
     },
     handleMouse(event) {
-      if (event?.type !== "click" || event.button !== "left" || !closeHitRegion) return undefined;
+      if (event?.type !== "click" || event.button !== "left") return undefined;
+      if (event.y === 1) {
+        const region = tabHitRegions.find((candidate) => event.x >= candidate.startX && event.x < candidate.endX);
+        if (!region) return undefined;
+        if (region.index === activeTabIndex) return { handled: true, render: false };
+        changeTab(region.index);
+        return { handled: true, render: true };
+      }
+      if (!closeHitRegion) return undefined;
       if (event.y !== closeHitRegion.y || event.x < closeHitRegion.startX || event.x >= closeHitRegion.endX) return undefined;
       onClose?.();
       return { handled: true, render: false };

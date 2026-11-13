@@ -422,3 +422,31 @@ test("key 5 selects the Timeline tab and a running deployment stays visible", ()
   assert.match(lines, /Merged into main · lmsastre/);
   assert.match(lines, /Deploy production/);
 });
+
+test("clicking a tab title switches tabs and clicking the active one is a no-op", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+  });
+
+  const plainLines = () => inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+  const checksX = plainLines()[1].indexOf("Checks");
+  assert.ok(checksX > 0, "the Checks label must be visible on the tabs row");
+
+  const result = inspector.handleMouse({ type: "click", button: "left", x: checksX + 1, y: 1, width: 96, height: 20 });
+  assert.deepEqual(result, { handled: true, render: true });
+  assert.equal(inspector.getActiveTab(), "Checks");
+
+  // Clicking the already-active tab keeps the tab without extra renders.
+  const activeX = plainLines()[1].indexOf("Checks");
+  assert.deepEqual(
+    inspector.handleMouse({ type: "click", button: "left", x: activeX + 1, y: 1, width: 96, height: 20 }),
+    { handled: true, render: false },
+  );
+  assert.equal(inspector.getActiveTab(), "Checks");
+
+  // Clicks outside the tab row stay unhandled for the tabs themselves.
+  assert.equal(inspector.handleMouse({ type: "click", button: "left", x: 3, y: 5, width: 96, height: 20 }), undefined);
+  assert.equal(inspector.getActiveTab(), "Checks");
+});

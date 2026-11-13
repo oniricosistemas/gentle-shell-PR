@@ -88,7 +88,7 @@ The v0.4 inspector adds a fifth tab:
 
 - **Timeline** — the pull request's story on one read-only line per entry: lifecycle events (reviews, merge, closed/ready/draft transitions) and GitHub Actions runs associated with the pull request's head or merge commit, including deployments that keep running after the merge. A merged pull request always shows its merge row even when the bounded event list is empty. Timeline is local-only and degrades like the Context tab.
 
-Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `1`–`5` to jump to a tab, `j`/`k` to scroll, `Enter` to expand the failed-check excerpt on the Context tab, `o` to open GitHub, and `Esc` to close the inspector.
+Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `1`–`5` to jump to a tab, or click a tab title, `j`/`k` to scroll, `Enter` to expand the failed-check excerpt on the Context tab, `o` to open GitHub, and `Esc` to close the inspector.
 
 ## Commands
 

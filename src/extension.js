@@ -1,5 +1,4 @@
-import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";
-import { createPullRequestInspector } from "./inspector.js";
+import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";import { createPullRequestInspector } from "./inspector.js";
 import { attachGentleShellRailPanel, createPullRequestPanel } from "./sidebar.js";
 
 const UI_KEY = "gentle-shell-pr";
@@ -16,6 +15,7 @@ const EMPTY_STATE = {
 export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
+  const collectContext = dependencies.collectContext ?? collectPullRequestContext;
   const execute = dependencies.execute ?? executeFile;
   const matchesKey = dependencies.matchesKey;
   const renderMarkdown = dependencies.renderMarkdown;
@@ -145,18 +145,20 @@ export function createPrSidebarExtension(dependencies = {}) {
         };
       }
       if (active === current && current.inspectorSession === session && session.state.pullRequest) {
-        // Review context is optional: a failure degrades to an unavailable
-        // Context tab without affecting the loaded detail.
+        // Show the loaded detail immediately; review context is optional and
+        // arrives separately so a slow GraphQL query cannot hold the
+        // inspector on the loading state (review follow-up R4-1).
+        session.component?.setState(session.state);
         try {
-          const context = await collectPullRequestContext({
+          const collected = await collectContext({
             cwd: context.cwd,
             repository: current.state.repository,
             number: session.state.pullRequest.number,
           });
-          if (active === current && current.inspectorSession === session && !context.error) {
+          if (active === current && current.inspectorSession === session && !collected.error && collected.context) {
             session.state = {
               ...session.state,
-              pullRequest: { ...session.state.pullRequest, context: context.context },
+              pullRequest: { ...session.state.pullRequest, context: collected.context },
             };
           }
         } catch {

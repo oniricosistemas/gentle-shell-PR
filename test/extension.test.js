@@ -243,3 +243,56 @@ test("the extension cleans up the rail and timer on session shutdown", async () 
   assert.equal(harness.terminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer"), harness.originalFooter);
   assert.deepEqual(harness.statuses.at(-1), { key: "gentle-shell-pr", value: undefined });
 });
+
+test("the inspector renders loaded details before review context resolves", async () => {
+  const harness = createHarness();
+  const focusedResult = {
+    repository: "oniricosistemas/gentle-shell-PR",
+    branch: "feat/sidebar",
+    pullRequests: [{
+      number: 42, title: "Add PR sidebar", url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
+      headBranch: "feat/sidebar", baseBranch: "main", isDraft: false, review: "approved", merge: "ready",
+      checks: { passed: 1, failed: 0, pending: 0, total: 1 }, updatedAt: "2026-11-05T12:00:00Z",
+    }],
+    error: undefined,
+  };
+  let releaseContext;
+  const contextPromise = new Promise((resolve) => { releaseContext = resolve; });
+  createPrSidebarExtension({
+    collect: async () => focusedResult,
+    collectDetail: async () => ({
+      repository: focusedResult.repository,
+      error: undefined,
+      pullRequest: {
+        ...focusedResult.pullRequests[0], bodySummary: "## Focused detail", author: "octocat", labels: [],
+        state: "OPEN", additions: 10, deletions: 2, changedFiles: 1, checks: [{ name: "test", status: "passed" }],
+        files: [{ path: "src/extension.js", additions: 10, deletions: 2 }],
+      },
+    }),
+    collectContext: () => contextPromise,
+    renderMarkdown: () => ["Rendered Markdown detail"],
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  })(harness.pi);
+
+  await harness.handlers.get("session_start")({}, harness.context);
+  const focusPromise = harness.commands.get("pr-focus").handler("", harness.context);
+  // Give the detail path a chance to settle before the context resolves.
+  await new Promise((resolve) => setImmediate(resolve));
+  const inspector = harness.ui.customs[1].component;
+  const before = inspector.render(96).join("\n");
+  // The detail is rendered even though the context promise is still pending.
+  assert.equal(before.includes("Loading pull request details"), false);
+  assert.match(before, /Rendered Markdown detail/);
+
+  releaseContext({
+    repository: focusedResult.repository,
+    error: undefined,
+    context: { fetchedAt: "2026-11-12T22:00:00Z", linkedIssues: [], reviewThreads: [], failedCheck: undefined },
+  });
+  await focusPromise;
+  inspector.setTab("Context");
+  const lines = inspector.render(96).join("\n");
+  const expectedTime = new Date("2026-11-12T22:00:00Z").toTimeString().slice(0, 5);
+  assert.match(lines, new RegExp(`Fetched ${expectedTime} · read-only`));
+});

@@ -232,6 +232,7 @@ test("the inspector exposes a Context tab with linked issues, review threads, an
     pullRequest: {
       ...detail.pullRequest,
       context: {
+        fetchedAt: "2026-11-12T15:08:00Z",
         linkedIssues: [{ number: 128, title: "Prevent open redirects", state: "OPEN", body: "Keep OAuth return URLs on the current origin.", labels: ["security"] }],
         reviewThreads: [{ path: "src/auth/callback.ts", line: 82, author: "marin", createdAt: "2026-11-12T14:50:00Z", outdated: false, excerpt: "Can we reject protocol-relative URLs here?" }],
         failedCheck: { name: "Security / callback-policy", summary: "FAIL rejects external return URLs\ninput: //outside.example", annotations: [{ message: "Protocol-relative URLs pass the leading-slash check", path: "src/auth/callback.ts", line: 82 }] },
@@ -249,6 +250,7 @@ test("the inspector exposes a Context tab with linked issues, review threads, an
   const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
 
   assert.match(lines, /\[Context\]/);
+  assert.match(lines, /Fetched \d\d:\d\d · read-only/);
   assert.match(lines, /Linked issue/);
   assert.match(lines, /#128 · Prevent open redirects/);
   assert.match(lines, /Keep OAuth return URLs on the current origin/);
@@ -294,11 +296,12 @@ test("key 4 selects the Context tab and Enter toggles the failed-check excerpt",
     pullRequest: {
       ...detail.pullRequest,
       context: {
+        fetchedAt: "2026-11-12T15:08:00Z",
         linkedIssues: [],
         reviewThreads: [],
         failedCheck: {
           name: "Security",
-          summary: Array.from({ length: 8 }, (_, index) => `log line ${index + 1}`).join("\n"),
+          summary: Array.from({ length: 6 }, (_, index) => `log line ${index + 1}`).join("\n"),
           annotations: [],
         },
       },
@@ -315,16 +318,16 @@ test("key 4 selects the Context tab and Enter toggles the failed-check excerpt",
   assert.equal(inspector.getActiveTab(), "Context");
   const compact = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
   assert.match(compact, /log line 1/);
-  assert.doesNotMatch(compact, /log line 8/);
+  assert.doesNotMatch(compact, /log line 6/);
   assert.match(compact, /Enter expand/);
 
   inspector.handleInput("\r");
   const expanded = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
-  assert.match(expanded, /log line 8/);
+  assert.match(expanded, /log line 6/);
   assert.match(expanded, /Enter collapse/);
 
   inspector.handleInput("\r");
   const collapsedAgain = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
-  assert.doesNotMatch(collapsedAgain, /log line 8/);
+  assert.doesNotMatch(collapsedAgain, /log line 6/);
   assert.ok(renders.length >= 3);
 });

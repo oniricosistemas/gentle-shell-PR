@@ -151,6 +151,10 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     if (!context) return [{ token: "muted", text: "Review context is unavailable." }];
 
     const lines = [];
+    const fetched = context.fetchedAt
+      ? `Fetched ${new Date(context.fetchedAt).toTimeString().slice(0, 5)} · read-only`
+      : "Read-only context";
+    lines.push({ token: "muted", text: fetched });
     const issues = Array.isArray(context.linkedIssues) ? context.linkedIssues : [];
     lines.push({ token: "text", text: `Linked issue${issues.length === 1 ? "" : "s"}${issues.length ? ` · ${issues.length} reference${issues.length === 1 ? "" : "s"}` : ""}`, bold: true });
     if (!issues.length) {

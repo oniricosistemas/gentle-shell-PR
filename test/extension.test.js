@@ -296,3 +296,45 @@ test("the inspector renders loaded details before review context resolves", asyn
   const expectedTime = new Date("2026-11-12T22:00:00Z").toTimeString().slice(0, 5);
   assert.match(lines, new RegExp(`Fetched ${expectedTime} · read-only`));
 });
+
+test("the Context tab distinguishes a pending context from an unavailable one", async () => {
+  const harness = createHarness();
+  const focusedResult = {
+    repository: "oniricosistemas/gentle-shell-PR",
+    branch: "feat/sidebar",
+    pullRequests: [{
+      number: 42, title: "Add PR sidebar", url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
+      headBranch: "feat/sidebar", baseBranch: "main", isDraft: false, review: "approved", merge: "ready",
+      checks: { passed: 1, failed: 0, pending: 0, total: 1 }, updatedAt: "2026-11-05T12:00:00Z",
+    }],
+    error: undefined,
+  };
+  let releaseContext;
+  const contextPromise = new Promise((resolve) => { releaseContext = resolve; });
+  createPrSidebarExtension({
+    collect: async () => focusedResult,
+    collectDetail: async () => ({
+      repository: focusedResult.repository,
+      error: undefined,
+      pullRequest: {
+        ...focusedResult.pullRequests[0], bodySummary: "", author: "octocat", labels: [],
+        state: "OPEN", additions: 1, deletions: 1, changedFiles: 1, checks: [], files: [],
+      },
+    }),
+    collectContext: () => contextPromise,
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  })(harness.pi);
+
+  await harness.handlers.get("session_start")({}, harness.context);
+  const focusPromise = harness.commands.get("pr-focus").handler("", harness.context);
+  await new Promise((resolve) => setImmediate(resolve));
+  const inspector = harness.ui.customs[1].component;
+  inspector.setTab("Context");
+  // While the context query is pending the tab shows a loading state, not a failure.
+  assert.match(inspector.render(96).join("\n"), /Loading review context/);
+
+  releaseContext({ repository: focusedResult.repository, error: "Could not load pull request context", context: undefined });
+  await focusPromise;
+  assert.match(inspector.render(96).join("\n"), /Review context is unavailable/);
+});

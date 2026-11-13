@@ -148,7 +148,11 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
 
   const contextLines = (pr, width) => {
     const context = pr.context;
-    if (!context) return [{ token: "muted", text: "Review context is unavailable." }];
+    if (!context) {
+      return state.contextPending === true
+        ? [{ token: "warning", text: "Loading review context…" }]
+        : [{ token: "muted", text: "Review context is unavailable." }];
+    }
 
     const lines = [];
     const fetched = context.fetchedAt

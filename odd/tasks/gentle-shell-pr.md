@@ -22,6 +22,10 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 15. **S15** — "Faster diagnosis; a denser, noisier rail. Local notifications only · no repository mutations": el contexto es estrictamente read-only, sin mutaciones de repositorio; los fallos de coleccion degradan sin romper el inspector.
 16. **S16** — Todo el contenido externo (issues, comentarios de review, anotaciones de checks) se sanitiza con el mismo criterio del resto del paquete y se presenta acotado (issues: max 3; threads sin resolver: max 8; anotaciones: max 10 con mensajes de max 200 caracteres; excerpt del resumen del check: max 1000 caracteres).
 
+17. **S17** — "vamos con Artboards del roadmap: v0.4 Merge Timeline": el inspector muestra una pestaña Timeline con la historia del PR (apertura, resultados de CI con timestamps, decisiones de review, merge) y los workflow runs de GitHub Actions asociados (incluidos los que siguen corriendo despues del merge). Read-only, sin mutaciones.
+18. **S18** — "v0.5 Command Center": inbox cross-repositorio con discovery de repositorios del workspace, agregacion de PRs, filtros locales (owner, atencion: review requested / failed CI) y estados vacios/offline. "Filters are local views; they never change repository state."
+19. **S19** — Backlog informativo del review `review-4f721ac74693a312` (7 hallazgos en extension.js, github.js y su test): re-derivados desde el codigo y corregidos los que sean reales, como ronda unica (no iterar review).
+
 ## Tasks
 
 - [x] **T1 — S1, S2, S3, S9 — Route: parent — Scaffold the public Gentle Shell extension repository and package metadata. Commit: `8ed44f4`.
@@ -40,9 +44,19 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T14** — S14, S15, S16 — Route: parent — Render the Context tab in the inspector (fourth tab, key 4, bounded sections, Enter toggles the failed-check excerpt). Tests first. Commit: `a6fe651`.
 - [x] **T15** — S14, S15 — Route: parent — Wire context collection into the inspector session with graceful degradation; update README. Commit: `a6fe651`.
 
+## Tasks (continuacion)
+
+- [ ] **T16** — S19 — Route: parent — Re-derive and apply the 7 informational findings from `review-4f721ac74693a312` (extension.js, github.js, extension test). Tests first where a rule is pinneable.
+- [ ] **T17** — S17 — Route: parent — Collect bounded PR timeline events and associated workflow runs (read-only). Tests first.
+- [ ] **T18** — S17 — Route: parent — Render the Timeline tab in the inspector. Tests first.
+- [ ] **T19** — S17 — Route: parent — Wire timeline into the inspector session; update README.
+- [ ] **T20** — S18 — Route: parent — Repository discovery + cross-repo PR aggregation collector. Tests first.
+- [ ] **T21** — S18 — Route: parent — Local filters (owner, attention) and empty/offline states. Tests first.
+- [ ] **T22** — S18 — Route: parent — Command center panel component and wiring; update README.
+
 ## Log
 
-- **L1** — "ok, vamos con eso entonces:\n1- crea el repo en github en https://github.com/oniricosistemas\npara que figure en el hub de la web gentlemanprogramming pide esto:\nAdd the gentle-shell-package topic to a public Shell resource repository, or gentle-hub-project to any public community project. Discovery is eventual once configured; no publishing schedule is currently promised.\n\nResource subtype topics are optional: gentle-shell-extension, gentle-shell-theme, gentle-shell-skill, and gentle-shell-prompt. Without one, your listing appears as Resource; no subtype is guessed.\n\n2- enrola el proyecto para que se sincronice con engram cloud\n3- el sidebar debe tomar los colores del theme que este seleccionado"
+- **L1 — "ok, vamos con eso entonces:\n1- crea el repo en github en https://github.com/oniricosistemas\npara que figure en el hub de la web gentlemanprogramming pide esto:\nAdd the gentle-shell-package topic to a public Shell resource repository, or gentle-hub-project to any public community project. Discovery is eventual once configured; no publishing schedule is currently promised.\n\nResource subtype topics are optional: gentle-shell-extension, gentle-shell-theme, gentle-shell-skill, and gentle-shell-prompt. Without one, your listing appears as Resource; no subtype is guessed.\n\n2- enrola el proyecto para que se sincronice con engram cloud\n3- el sidebar debe tomar los colores del theme que este seleccionado"
 - **L2** — Repository/package choice: "gentle-shell-PR".
 - **L3** — Engram configured from `.engram/config.json` as `gentle-shell-PR`; Engram normalizes the cloud identity to `gentle-shell-pr`.
 - **L4** — Engram Cloud enrollment verified as enrolled; explicit export/import sync completed with 1 local chunk, 1 remote chunk, and 0 pending imports.
@@ -59,3 +73,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L15** — "ok, continuemos con el desarrollo de pr-flow" + eleccion "v0.3 Review Context" (artboard `design/pr-sidebar-roadmap/02-v03-review-context.html`). Las alternativas v0.4 Merge Timeline y v0.5 Command Center siguen pendientes como artboards.
 - **L16** — v0.3 verification: `npm run check` passed all 55 tests (3 context-collector tests RED first, 3 Context-tab tests RED first, then GREEN); `git diff --check` clean. Work committed as `a6fe651` on `feat/review-context` (branched from `origin/main` after the #15 merge).
 - **L17** — Review follow-ups applied as one correction round: live validation exposed that GitHub's current GraphQL schema broke the statusCheckRollup query (no 'first'/union spread), and the inspector wiring had a TDZ variable shadow that made every real context attach fail silently. Fixed with the schema-aware query, StatusContext fallback, early setState, fetched-time display, and collectContext injection. Verification: `npm run check` 56/56, live collection against oniricosistemas/gentle-shell-PR#18 returned linked issues and the failed check.
+- **L18** — "vamos con Artboards del roadmap: v0.4 Merge Timeline y v0.5 Command Center. y Backlog informativo del ultimo review (review-4f721ac74693a312) — deliberadamente no iterado." Orden elegido: backlog primero (T16), luego v0.4 (T17-T19), luego v0.5 (T20-T22).

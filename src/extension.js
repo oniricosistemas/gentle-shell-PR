@@ -1,4 +1,5 @@
-import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";import { createPullRequestInspector } from "./inspector.js";
+import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";
+import { createPullRequestInspector } from "./inspector.js";
 import { attachGentleShellRailPanel, createPullRequestPanel } from "./sidebar.js";
 
 const UI_KEY = "gentle-shell-pr";
@@ -147,7 +148,9 @@ export function createPrSidebarExtension(dependencies = {}) {
       if (active === current && current.inspectorSession === session && session.state.pullRequest) {
         // Show the loaded detail immediately; review context is optional and
         // arrives separately so a slow GraphQL query cannot hold the
-        // inspector on the loading state (review follow-up R4-1).
+        // inspector on the loading state (review follow-up R4-1). The Context
+        // tab distinguishes this pending window from a real failure.
+        session.state = { ...session.state, contextPending: true };
         session.component?.setState(session.state);
         try {
           const collected = await collectContext({
@@ -155,14 +158,17 @@ export function createPrSidebarExtension(dependencies = {}) {
             repository: current.state.repository,
             number: session.state.pullRequest.number,
           });
-          if (active === current && current.inspectorSession === session && !collected.error && collected.context) {
-            session.state = {
-              ...session.state,
-              pullRequest: { ...session.state.pullRequest, context: collected.context },
-            };
+          if (active === current && current.inspectorSession === session) {
+            const attached = !collected.error && collected.context
+              ? { pullRequest: { ...session.state.pullRequest, context: collected.context } }
+              : {};
+            session.state = { ...session.state, contextPending: false, ...attached };
           }
         } catch {
-          // Context stays unavailable.
+          // Context stays unavailable; the pending marker clears.
+          if (active === current && current.inspectorSession === session) {
+            session.state = { ...session.state, contextPending: false };
+          }
         }
       }
       if (active === current && current.inspectorSession === session) session.component?.setState(session.state);

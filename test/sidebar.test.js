@@ -241,18 +241,18 @@ test("legacy layout renders the bordered card expanded by default", () => {
   assert.equal(lines.every((line) => line.replace(/\u001b\[[0-9;]*m/g, "").length <= 42), true);
 });
 
-test("rail layout renders a borderless collapsed row by default", () => {
+test("rail layout renders a borderless expanded section by default", () => {
   const panel = createPullRequestPanel({
     tui: { requestRender() {} },
     theme: createTheme(),
     initialState: loadedState,
     layout: "rail",
   });
-  assert.equal(panel.isCollapsed(), true);
+  assert.equal(panel.isCollapsed(), false);
   const lines = panel.render(42);
   const plain = lines.map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
-  assert.match(plain, /▸ Pull requests · 1/);
-  assert.doesNotMatch(plain, /#42/);
+  assert.match(plain, /▾ Pull requests · 1/);
+  assert.match(plain, /#42 Add PR sidebar/);
   assert.doesNotMatch(plain, /[╭╯│]/);
   assert.equal(lines.every((line) => line.replace(/\u001b\[[0-9;]*m/g, "").length <= 42), true);
 });
@@ -264,8 +264,13 @@ test("rail layout expands and collapses by clicking the header", () => {
     initialState: loadedState,
     layout: "rail",
   });
-  assert.equal(panel.isCollapsed(), true);
+  assert.equal(panel.isCollapsed(), false);
   panel.render(42);
+  assert.deepEqual(panel.handleMouse({ type: "click", button: "left", x: 0, y: 0 }), { handled: true, render: true });
+  assert.equal(panel.isCollapsed(), true);
+  const collapsed = panel.render(42).join("\n");
+  assert.match(collapsed, /▸ Pull requests · 1/);
+  assert.doesNotMatch(collapsed, /#42/);
   assert.deepEqual(panel.handleMouse({ type: "click", button: "left", x: 0, y: 0 }), { handled: true, render: true });
   assert.equal(panel.isCollapsed(), false);
   const lines = panel.render(42);
@@ -284,8 +289,6 @@ test("rail layout opens a pull request when its title row is clicked", () => {
     layout: "rail",
     onOpenPullRequest: (pullRequest) => opened.push(pullRequest),
   });
-  panel.render(42);
-  panel.handleMouse({ type: "click", button: "left", x: 0, y: 0 });
   panel.render(42);
   assert.deepEqual(panel.handleMouse({ type: "click", button: "left", x: 0, y: 2 }), { handled: true, render: false });
   assert.equal(opened[0], loadedState.pullRequests[0]);
@@ -335,7 +338,7 @@ test("the shared rail wrapper forwards optional native footer properties", () =>
   assert.equal("summary" in legacyWrapper, false);
 });
 
-test("createPullRequestPanel reports its initial collapsed state", () => {
+test("createPullRequestPanel reports its initial expanded state", () => {
   const legacyChanges = [];
   const railChanges = [];
   createPullRequestPanel({
@@ -354,7 +357,7 @@ test("createPullRequestPanel reports its initial collapsed state", () => {
     layout: "rail",
     onCollapsedChange: (collapsed) => railChanges.push(collapsed),
   });
-  assert.deepEqual(railChanges, [true]);
+  assert.deepEqual(railChanges, [false]);
 });
 
 test("the shared rail wrapper composes card groups and offsets grouped participants", () => {
@@ -512,19 +515,15 @@ test("the grouped panel section keeps its spacer outside the card group and shif
   const lines = grouped.render(42);
   assert.equal(lines[0], "");
   const plain = lines.slice(1).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
-  // Rail layout mounts collapsed by default: the header shows the collapsed marker.
-  assert.match(plain[0], /▸ Pull requests · 1/);
+  // Rail layout mounts expanded by default with the pull-request rows visible.
+  assert.match(plain[0], /▾ Pull requests · 1/);
+  assert.match(plain[2], /#42 Add PR sidebar/);
 
   assert.deepEqual(grouped.cardGroups?.(42), { groups: [{ start: 1, end: lines.length }] });
 
-  // Clicking the header row (grouped y 1) toggles collapse; the spacer is inert.
+  // The spacer is inert and the expanded PR title keeps its grouped mouse offset.
   assert.equal(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 0 }), undefined);
-  assert.deepEqual(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 1 }), { handled: true, render: true });
-  assert.equal(panel.isCollapsed(), false);
-
-  const expanded = grouped.render(42);
-  assert.match(expanded[1].replace(/\u001b\[[0-9;]*m/g, ""), /▾ Pull requests · 1/);
-  assert.deepEqual(grouped.cardGroups?.(42), { groups: [{ start: 1, end: expanded.length }] });
+  assert.deepEqual(grouped.cardGroups?.(42), { groups: [{ start: 1, end: lines.length }] });
   assert.deepEqual(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 3 }), { handled: true, render: false });
   assert.equal(opened[0], loadedState.pullRequests[0]);
 });

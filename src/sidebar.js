@@ -164,7 +164,7 @@ function factsToken(pr) {
 export function createPullRequestPanel({ tui, theme, initialState, onCollapsedChange, onOpenPullRequest, layout }) {
   let state = initialState;
   const railMode = (layout ?? detectGentleShellRailLayout(tui)) === "rail";
-  let collapsed = railMode;
+  let collapsed = false;
   let pullRequestTitleRows = new Map();
 
   onCollapsedChange?.(collapsed);

@@ -350,12 +350,16 @@ query($owner: String!, $name: String!, $number: Int!) {
       mergedBy { login }
       headRefName
       headRefOid
+      mergeCommit { oid }
       timelineItems(first: 40, itemTypes: [PULL_REQUEST_REVIEW, MERGED_EVENT, CLOSED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, REVIEW_DISMISSED_EVENT]) {
         nodes {
           __typename
           ... on PullRequestReview { state submittedAt author { login } }
           ... on MergedEvent { createdAt actor { login } commit { oid } }
           ... on ClosedEvent { createdAt actor { login } }
+          ... on ReadyForReviewEvent { createdAt actor { login } }
+          ... on ConvertToDraftEvent { createdAt actor { login } }
+          ... on ReviewDismissedEvent { createdAt actor { login } }
         }
       }
     }
@@ -400,9 +404,11 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
     return { repository, error: "GitHub returned invalid pull request timeline data", timeline: undefined };
   }
 
+  // Timeline items arrive oldest first; the bounded list keeps the most
+  // recent events so merge and late reviews never fall off the window.
   const events = detailRows(pull.timelineItems?.nodes, 40)
     .filter((node) => node.__typename !== "IssueComment" && (node.submittedAt || node.createdAt))
-    .slice(0, TIMELINE_EVENT_LIMIT)
+    .slice(-TIMELINE_EVENT_LIMIT)
     .map((node) => {
       if (node.__typename === "PullRequestReview") {
         return { kind: "review", state: detailText(node.state, 30), at: timestamp(node.submittedAt), author: detailText(node.author?.login) };
@@ -429,8 +435,10 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
   const headSha = detailText(pull.headRefOid, 64);
   // Deployment runs follow the merge commit once the PR lands, so runs keyed
   // on either the pull request's head SHA or its merge commit SHA belong here.
+  // The merge commit comes from the pull request itself because a bounded
+  // event window can drop the MergedEvent node.
   const relevantShas = new Set(
-    [headSha, events.find((event) => event.kind === "merged")?.commit]
+    [headSha, pull.mergeCommit?.oid, events.find((event) => event.kind === "merged")?.commit]
       .filter((sha) => typeof sha === "string" && /^[0-9a-f]{40}$/i.test(sha)),
   );
   const workflowRuns = [];

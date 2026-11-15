@@ -173,11 +173,13 @@ export function createPrSidebarExtension(dependencies = {}) {
         } catch {
           // Context stays unavailable.
         } finally {
-          // The pending markers always clear, even when the session lost
-          // focus while the queries were in flight; only the render is gated
-          // on activity.
-          session.state = { ...session.state, contextPending: false };
-          if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+          // Pending markers only clear while this collection still targets
+          // the pull request it started for; a retargeted session keeps its
+          // own pending window.
+          if (session.state.pullRequest?.number === targetNumber) {
+            session.state = { ...session.state, contextPending: false };
+            if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+          }
         }
         // Timeline is fetched independently so a context failure cannot
         // take it down with it; it also degrades to an unavailable tab.
@@ -197,8 +199,10 @@ export function createPrSidebarExtension(dependencies = {}) {
         } catch {
           // Timeline stays unavailable.
         } finally {
-          session.state = { ...session.state, timelinePending: false };
-          if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+          if (session.state.pullRequest?.number === targetNumber) {
+            session.state = { ...session.state, timelinePending: false };
+            if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+          }
         }
       }
       if (active === current && current.inspectorSession === session) session.component?.setState(session.state);

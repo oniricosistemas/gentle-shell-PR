@@ -756,3 +756,17 @@ test("inbox collector marks the current repository with tolerant path comparison
   const current = result.repositories.find((entry) => entry.current);
   assert.equal(current?.repository, "owner/pr-flow");
 });
+
+test("timeline collector requests the most recent window with last", async () => {
+  const calls = [];
+  await github.collectPullRequestTimeline({
+    cwd: "/workspace/project", repository: "org/repo", number: 51,
+    execute: async (_command, args) => {
+      calls.push(args[3]);
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+  // first: 40 keeps the oldest events of a large PR; the window must be last.
+  assert.match(calls[0], /timelineItems\(last: 40,/);
+  assert.doesNotMatch(calls[0], /timelineItems\(first:/);
+});

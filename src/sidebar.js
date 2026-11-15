@@ -137,10 +137,13 @@ export function createCommandCenterPanel({ tui, theme, initialState }) {
     invalidate: () => tui.requestRender(),
     digest: () => JSON.stringify({ inbox, ownerIndex, attentionIndex }),
     setState(next) {
+      // The selected owner follows identity, not position: re-find the author
+      // by name after the inbox changes; fall back to All owners when the
+      // author disappeared.
+      const selectedOwner = ownerIndex > 0 ? owners()[ownerIndex] : undefined;
       inbox = next?.inbox ?? inbox;
-      // A shrunk inbox can invalidate the selected owner; clamp it so the
-      // filter always points at an existing author (or stays on All owners).
-      if (ownerIndex >= owners().length) ownerIndex = 0;
+      const nextIndex = selectedOwner ? owners().indexOf(selectedOwner) : 0;
+      ownerIndex = nextIndex >= 0 ? nextIndex : 0;
       tui.requestRender();
     },
     getInbox: () => inbox,

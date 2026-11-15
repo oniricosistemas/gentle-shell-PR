@@ -351,7 +351,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       headRefName
       headRefOid
       mergeCommit { oid }
-      timelineItems(first: 40, itemTypes: [PULL_REQUEST_REVIEW, MERGED_EVENT, CLOSED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, REVIEW_DISMISSED_EVENT]) {
+      timelineItems(last: 40, itemTypes: [PULL_REQUEST_REVIEW, MERGED_EVENT, CLOSED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, REVIEW_DISMISSED_EVENT]) {
         nodes {
           __typename
           ... on PullRequestReview { state submittedAt author { login } }
@@ -405,7 +405,8 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
   }
 
   // Timeline items arrive oldest first; the bounded list keeps the most
-  // recent events so merge and late reviews never fall off the window.
+  // recent events of the requested window so merge and late reviews never
+  // fall off.
   const events = detailRows(pull.timelineItems?.nodes, 40)
     .filter((node) => node.__typename !== "IssueComment" && (node.submittedAt || node.createdAt))
     .slice(-TIMELINE_EVENT_LIMIT)

@@ -51,13 +51,13 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T17** — S17 — Route: parent — Collect bounded PR timeline events and associated workflow runs (read-only). Tests first. Commit: `e4832a2`.
 - [x] **T18** — S17 — Route: parent — Render the Timeline tab in the inspector. Tests first. Commit: `e4832a2`.
 - [x] **T19** — S17 — Route: parent — Wire timeline into the inspector session; update README. Commit: `e4832a2`.
-- [x] **T20** — S18 — Route: parent — Repository discovery + cross-repo PR aggregation collector. Tests first. Commit: pending in this batch.
-- [x] **T21** — S18 — Route: parent — Local filters (owner, attention) and empty/offline states. Tests first. Commit: pending in this batch.
-- [x] **T22** — S18 — Route: parent — Command center panel component and wiring; update README. Commit: pending in this batch.
+- [x] **T20** — S18 — Route: parent — Repository discovery + cross-repo PR aggregation collector. Tests first. Commit: `0209740` (PR #26 slice).
+- [x] **T21** — S18 — Route: parent — Local filters (owner, attention) and empty/offline states. Tests first. Commit: `812f813` (PR #27 slice).
+- [x] **T22** — S18 — Route: parent — Command center panel component and wiring; update README. Commit: `812f813` (PR #27 slice).
 
 ## Tasks (continuacion)
 
-- [x] **T23** — S20 — Route: parent — Clickable tab titles in the inspector modal (hit regions per tab label, mouse routing). Tests first. Commit: pending in this batch.
+- [x] **T23** — S20 — Route: parent — Clickable tab titles in the inspector modal (hit regions per tab label, mouse routing). Tests first. Commit: `b814d92` (on `feat/command-center`).
 
 ## Log
 
@@ -83,3 +83,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L20** — v0.4 verification: `npm run check` 62/62; live collection against oniricosistemas/gentle-shell-PR#18 returned the merged/closed events and 3 workflow runs (head + merge commit). Discovered during live validation: `gh api --repo` is not a valid flag (the check-run/annotations lookups in the context collector were silently degraded by it) and the Actions API accepts one head_sha per request (per-SHA calls, dedup by run id).
 - **L21** — v0.5 verification: `npm run check` 68/68; RED-first for collector, filters, and panel. Command center is a capturing centered panel (Esc closes) because it aggregates several repositories; the sidebar stays single-repo.
 - **L22** — "antes agreguemos algo mas.... cuando se abre el modal con el pr, los titulos de los tabs no son clickeables, deberian serlo no? para no obligar a usar el tab" — nueva tarea T23 antes de la entrega.
+- **L23** — Cadena de review slices (#24-#27 sobre #23) creada para respetar el presupuesto de 400 lineas por slice; el arbol de `feat/command-center` ya contiene el contenido de la cadena mas T23 y la expansion del rail. Resolucion del conflicto de #23: merge de `fix/inspector-backlog` en `feat/command-center` (los cambios del backlog ya estaban contenidos en forma evolucionada).

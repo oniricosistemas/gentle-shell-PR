@@ -155,7 +155,7 @@ export function createPrSidebarExtension(dependencies = {}) {
         // The target number is captured once so a late result can never
         // attach context or timeline belonging to a different pull request.
         const targetNumber = session.state.pullRequest.number;
-        session.state = { ...session.state, contextPending: true };
+        session.state = { ...session.state, contextPending: true, timelinePending: true };
         session.component?.setState(session.state);
         try {
           const collected = await collectContext({
@@ -173,8 +173,8 @@ export function createPrSidebarExtension(dependencies = {}) {
         } catch {
           // Context stays unavailable.
         } finally {
-          // The pending marker always clears, even when the session lost
-          // focus while the query was in flight; only the render is gated
+          // The pending markers always clear, even when the session lost
+          // focus while the queries were in flight; only the render is gated
           // on activity.
           session.state = { ...session.state, contextPending: false };
           if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
@@ -193,10 +193,12 @@ export function createPrSidebarExtension(dependencies = {}) {
               ...session.state,
               pullRequest: { ...session.state.pullRequest, timeline: timeline.timeline },
             };
-            session.component?.setState(session.state);
           }
         } catch {
           // Timeline stays unavailable.
+        } finally {
+          session.state = { ...session.state, timelinePending: false };
+          if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
         }
       }
       if (active === current && current.inspectorSession === session) session.component?.setState(session.state);

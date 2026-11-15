@@ -3,12 +3,12 @@ import { cleanExternalText } from "./github.js";
 const TABS = ["Overview", "Checks", "Files", "Context", "Timeline"];
 const TIMELINE_EVENT_LABELS = {
   review: "Review",
-  merged: "Merged into main",
   closed: "Closed",
   ready: "Ready for review",
   draft: "Converted to draft",
   dismissed: "Review dismissed",
 };
+const NEUTRAL_RUN_CONCLUSIONS = new Set(["skipped", "cancelled", "neutral"]);
 const REVIEW_STATE_LABELS = {
   CHANGES_REQUESTED: "Changes requested",
   APPROVED: "Approved",
@@ -232,23 +232,31 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
 
   const timelineLines = (pr) => {
     const timeline = pr.timeline;
-    if (!timeline) return [{ token: "muted", text: "Timeline is unavailable." }];
+    if (!timeline) {
+      return state.timelinePending === true
+        ? [{ token: "warning", text: "Loading timeline…" }]
+        : [{ token: "muted", text: "Timeline is unavailable." }];
+    }
 
     const lines = [];
     const opened = timeline.openedAt ? `Opened ${new Date(timeline.openedAt).toTimeString().slice(0, 5)}` : "Opened";
     const merged = timeline.mergedAt ? ` · merged ${new Date(timeline.mergedAt).toTimeString().slice(0, 5)}` : " · not merged";
     lines.push({ token: "muted", text: `${opened}${merged} · read-only` });
-    const events = Array.isArray(timeline.events) ? timeline.events : [];
+    // Render stays pure: the synthetic merge row is pushed onto a copy so
+    // the session state object is never mutated during render.
+    const events = [...(Array.isArray(timeline.events) ? timeline.events : [])];
     // A merged pull request always shows its merge row, even when the bounded
     // event list is empty: mergedAt/mergedBy are authoritative on their own.
     if (timeline.mergedAt && !events.some((event) => event.kind === "merged")) {
       events.push({ kind: "merged", at: timeline.mergedAt, author: timeline.mergedBy, commit: undefined });
     }
+    // The merge target is the pull request's own base branch, not always main.
+    const mergeLabel = `Merged into ${pr.baseBranch || "main"}`;
     if (!events.length) {
       lines.push({ token: "muted", text: "No timeline events yet" });
     } else {
       for (const event of events) {
-        const label = TIMELINE_EVENT_LABELS[event.kind] || event.kind;
+        const label = event.kind === "merged" ? mergeLabel : (TIMELINE_EVENT_LABELS[event.kind] || event.kind);
         const time = event.at ? new Date(event.at).toTimeString().slice(0, 5) : "";
         const suffix = time ? ` · ${time}` : "";
         const token = event.kind === "merged" ? "success"
@@ -274,12 +282,16 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
       lines.push({ token: "muted", text: "No workflow runs" });
     } else {
       for (const run of runs) {
+        // Skipped, cancelled, and neutral conclusions are not failures: a
+        // completed run without success or failure renders as a neutral mark.
+        const neutral = run.status === "completed" && NEUTRAL_RUN_CONCLUSIONS.has(run.conclusion);
         const token = run.status === "in_progress" ? "warning"
           : run.conclusion === "success" ? "success"
           : run.conclusion === "failure" ? "error"
+          : neutral ? "muted"
           : run.status === "completed" ? "error"
           : "warning";
-        const icon = run.status === "in_progress" ? "◷" : run.conclusion === "success" ? "✓" : run.status === "completed" ? "×" : "◷";
+        const icon = run.status === "in_progress" ? "◷" : run.conclusion === "success" ? "✓" : neutral ? "–" : run.status === "completed" ? "×" : "◷";
         const stateLabel = run.status === "in_progress" ? "Running" : run.conclusion || run.status;
         const time = run.startedAt ? ` · ${new Date(run.startedAt).toTimeString().slice(0, 5)}` : "";
         lines.push({ token, text: `${icon} ${run.name || "Workflow"} · ${stateLabel}${time}` });

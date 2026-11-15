@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, resolve as resolvePath } from "node:path";
 
 const PR_FIELDS = [
   "number",
@@ -519,7 +519,10 @@ export async function collectPullRequestInbox({ cwd, execute = executeFile, limi
           repositories.push({
             repository,
             cwd: root,
-            current: root === String(cwd ?? "."),
+            // Discovery reports absolute normalized roots while the caller
+            // may pass a relative or trailing-slash cwd; compare resolved
+            // paths so the current repository is still marked as current.
+            current: resolvePath(root) === resolvePath(String(cwd ?? ".")),
           });
         }
       }
@@ -531,13 +534,19 @@ export async function collectPullRequestInbox({ cwd, execute = executeFile, limi
 
   const inbox = [];
   for (const { repository, cwd: root } of boundedRepositories) {
-    const pullRequestsResult = await collectPullRequests({ cwd: root, execute, limit });
-    inbox.push({
-      repository,
-      cwd: root,
-      error: pullRequestsResult.error,
-      pullRequests: pullRequestsResult.error ? [] : pullRequestsResult.pullRequests,
-    });
+    // A repository whose collection throws degrades to an errored entry;
+    // one broken repository must not abort the rest of the inbox.
+    try {
+      const pullRequestsResult = await collectPullRequests({ cwd: root, execute, limit });
+      inbox.push({
+        repository,
+        cwd: root,
+        error: pullRequestsResult.error,
+        pullRequests: pullRequestsResult.error ? [] : pullRequestsResult.pullRequests,
+      });
+    } catch {
+      inbox.push({ repository, cwd: root, error: "Could not collect pull requests", pullRequests: [] });
+    }
   }
 
   return {

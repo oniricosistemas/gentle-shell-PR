@@ -708,3 +708,51 @@ test("timeline collector maps ready, draft, and dismissed lifecycle events", asy
   assert.equal(result.error, undefined);
   assert.deepEqual(result.timeline.events.map((event) => event.kind), ["draft", "ready", "dismissed"]);
 });
+
+test("inbox collector degrades per repository when pull request collection throws", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    execute: async (command, args, options) => {
+      if (command === "find") return { exitCode: 0, stdout: "/workspace/pr-flow\n/workspace/broken\n/workspace/healthy", stderr: "" };
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
+      }
+      if (command === "gh" && args[0] === "pr") {
+        if (options?.cwd === "/workspace/broken") throw new Error("gh exploded");
+        return { exitCode: 0, stdout: JSON.stringify([
+          { number: 7, title: "Healthy", url: "u", headRefName: "a", baseRefName: "main", isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", latestReviews: [], updatedAt: "2026-11-13T12:00:00Z", author: { login: "lmsastre" } },
+        ]), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.inbox.length, 3);
+  const broken = result.inbox.find((entry) => entry.cwd === "/workspace/broken");
+  const healthy = result.inbox.find((entry) => entry.cwd === "/workspace/healthy");
+  // One broken repository degrades to an errored entry; the rest survive.
+  assert.equal(broken.error, "Could not collect pull requests");
+  assert.deepEqual(broken.pullRequests, []);
+  assert.equal(healthy.error, undefined);
+  assert.equal(healthy.pullRequests[0].number, 7);
+});
+
+test("inbox collector marks the current repository with tolerant path comparison", async () => {
+  const result = await github.collectPullRequestInbox({
+    // Relative path with a trailing slash: string equality would miss it.
+    cwd: "/workspace/pr-flow/",
+    execute: async (command, args, options) => {
+      if (command === "find") return { exitCode: 0, stdout: "/workspace/pr-flow\n/workspace/other", stderr: "" };
+      if (command === "git" && args[0] === "remote") {
+        return options?.cwd === "/workspace/pr-flow"
+          ? { exitCode: 0, stdout: "https://github.com/owner/pr-flow.git\n", stderr: "" }
+          : { exitCode: 0, stdout: "https://github.com/owner/other.git\n", stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  const current = result.repositories.find((entry) => entry.current);
+  assert.equal(current?.repository, "owner/pr-flow");
+});

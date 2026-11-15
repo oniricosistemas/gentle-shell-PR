@@ -152,43 +152,51 @@ export function createPrSidebarExtension(dependencies = {}) {
         // arrives separately so a slow GraphQL query cannot hold the
         // inspector on the loading state (review follow-up R4-1). The Context
         // tab distinguishes this pending window from a real failure.
+        // The target number is captured once so a late result can never
+        // attach context or timeline belonging to a different pull request.
+        const targetNumber = session.state.pullRequest.number;
         session.state = { ...session.state, contextPending: true };
         session.component?.setState(session.state);
         try {
           const collected = await collectContext({
             cwd: context.cwd,
             repository: current.state.repository,
-            number: session.state.pullRequest.number,
+            number: targetNumber,
           });
-          if (active === current && current.inspectorSession === session) {
-            const attached = !collected.error && collected.context
-              ? { pullRequest: { ...session.state.pullRequest, context: collected.context } }
-              : {};
-            session.state = { ...session.state, contextPending: false, ...attached };
-          }
-          // Timeline shares the pending window: it also arrives after the
-          // detail and degrades to an unavailable tab on failure.
-          try {
-            const timeline = await collectTimeline({
-              cwd: context.cwd,
-              repository: current.state.repository,
-              number: session.state.pullRequest.number,
-            });
-            if (active === current && current.inspectorSession === session && !timeline.error && timeline.timeline) {
-              session.state = {
-                ...session.state,
-                pullRequest: { ...session.state.pullRequest, timeline: timeline.timeline },
-              };
-              session.component?.setState(session.state);
-            }
-          } catch {
-            // Timeline stays unavailable.
+          if (active === current && current.inspectorSession === session && !collected.error && collected.context
+            && session.state.pullRequest?.number === targetNumber) {
+            session.state = {
+              ...session.state,
+              pullRequest: { ...session.state.pullRequest, context: collected.context },
+            };
           }
         } catch {
-          // Context stays unavailable; the pending marker clears.
-          if (active === current && current.inspectorSession === session) {
-            session.state = { ...session.state, contextPending: false };
+          // Context stays unavailable.
+        } finally {
+          // The pending marker always clears, even when the session lost
+          // focus while the query was in flight; only the render is gated
+          // on activity.
+          session.state = { ...session.state, contextPending: false };
+          if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+        }
+        // Timeline is fetched independently so a context failure cannot
+        // take it down with it; it also degrades to an unavailable tab.
+        try {
+          const timeline = await collectTimeline({
+            cwd: context.cwd,
+            repository: current.state.repository,
+            number: targetNumber,
+          });
+          if (active === current && current.inspectorSession === session && !timeline.error && timeline.timeline
+            && session.state.pullRequest?.number === targetNumber) {
+            session.state = {
+              ...session.state,
+              pullRequest: { ...session.state.pullRequest, timeline: timeline.timeline },
+            };
+            session.component?.setState(session.state);
           }
+        } catch {
+          // Timeline stays unavailable.
         }
       }
       if (active === current && current.inspectorSession === session) session.component?.setState(session.state);

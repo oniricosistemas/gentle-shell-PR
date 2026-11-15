@@ -1,6 +1,6 @@
-import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, collectPullRequestTimeline, executeFile } from "./github.js";
+import { collectPullRequestContext, collectPullRequestDetail, collectPullRequestInbox, collectPullRequests, collectPullRequestTimeline, executeFile } from "./github.js";
 import { createPullRequestInspector } from "./inspector.js";
-import { attachGentleShellRailPanel, createPullRequestPanel } from "./sidebar.js";
+import { attachGentleShellRailPanel, createCommandCenterPanel, createPullRequestPanel } from "./sidebar.js";
 
 const UI_KEY = "gentle-shell-pr";
 const POLL_INTERVAL_MS = 60_000;
@@ -18,6 +18,7 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const collectContext = dependencies.collectContext ?? collectPullRequestContext;
   const collectTimeline = dependencies.collectTimeline ?? collectPullRequestTimeline;
+  const collectInbox = dependencies.collectInbox ?? collectPullRequestInbox;
   const execute = dependencies.execute ?? executeFile;
   const matchesKey = dependencies.matchesKey;
   const renderMarkdown = dependencies.renderMarkdown;
@@ -270,6 +271,51 @@ export function createPrSidebarExtension(dependencies = {}) {
         if (active === current && current.visible) void refresh(current);
       }, POLL_INTERVAL_MS);
       current.timerId?.unref?.();
+    });
+
+    pi.registerCommand("pr-inbox", {
+      description: "Open the cross-repository pull request command center",
+      handler: async (_args, context) => {
+        if (context.mode !== "tui" || typeof context.ui.custom !== "function") {
+          context.ui.notify("Pull request inbox requires interactive TUI mode", "warning");
+          return;
+        }
+        const inbox = await collectInbox({ cwd: context.cwd });
+        if (inbox.error) {
+          context.ui.notify(inbox.error, "warning");
+          return;
+        }
+        try {
+          await context.ui.custom((tui, theme, keybindings, done) => {
+            const panel = createCommandCenterPanel({ tui, theme, initialState: inbox });
+            return {
+              render: panel.render,
+              invalidate: panel.invalidate,
+              digest: panel.digest,
+              handleInput(data) {
+                const cancel = keybindings?.matches?.(data, "tui.select.cancel") === true;
+                if (cancel || data === "\u001b" || data === "\u0003") {
+                  done(undefined);
+                  return;
+                }
+                if (data === "f") panel.cycleOwner();
+                else if (data === "a") panel.cycleAttention();
+              },
+            };
+          }, {
+            overlay: true,
+            overlayOptions: {
+              anchor: "center",
+              width: 60,
+              minWidth: 32,
+              maxHeight: "70%",
+              margin: 1,
+            },
+          });
+        } catch {
+          context.ui.notify("Pull request inbox unavailable", "warning");
+        }
+      },
     });
 
     pi.on("session_shutdown", () => stop());

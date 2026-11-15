@@ -25,6 +25,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 17. **S17** — "vamos con Artboards del roadmap: v0.4 Merge Timeline": el inspector muestra una pestaña Timeline con la historia del PR (apertura, resultados de CI con timestamps, decisiones de review, merge) y los workflow runs de GitHub Actions asociados (incluidos los que siguen corriendo despues del merge). Read-only, sin mutaciones.
 18. **S18** — "v0.5 Command Center": inbox cross-repositorio con discovery de repositorios del workspace, agregacion de PRs, filtros locales (owner, atencion: review requested / failed CI) y estados vacios/offline. "Filters are local views; they never change repository state."
 19. **S19** — Backlog informativo del review `review-4f721ac74693a312` (7 hallazgos en extension.js, github.js y su test): re-derivados desde el codigo y corregidos los que sean reales, como ronda unica (no iterar review).
+20. **S21** — "revisa los comentarios en los pr que dejo el agente revisor" + "dale con todo": los 15 hallazgos de `onirico-ai-pr-reviewer` en #23-#27 se re-derivan desde el codigo y los reales se corrigen en una ronda unica (no iterar review), con tests RED-first donde la regla es pinneable.
 
 ## Tasks
 
@@ -54,6 +55,10 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - [x] **T21** — S18 — Route: parent — Local filters (owner, attention) and empty/offline states. Tests first. Commit: pending in this batch.
 - [x] **T22** — S18 — Route: parent — Command center panel component and wiring; update README. Commit: pending in this batch.
 
+## Tasks (continuacion)
+
+- [ ] **T24** — S21 — Route: parent — Re-derive and apply the 15 verified findings from `onirico-ai-pr-reviewer` on #23-#27 (extension.js session races, github.js timeline/inbox, inspector.js render, sidebar.js command center). Tests first where a rule is pinneable. Commits: pending in this batch.
+
 ## Log
 
 - **L1 — "ok, vamos con eso entonces:\n1- crea el repo en github en https://github.com/oniricosistemas\npara que figure en el hub de la web gentlemanprogramming pide esto:\nAdd the gentle-shell-package topic to a public Shell resource repository, or gentle-hub-project to any public community project. Discovery is eventual once configured; no publishing schedule is currently promised.\n\nResource subtype topics are optional: gentle-shell-extension, gentle-shell-theme, gentle-shell-skill, and gentle-shell-prompt. Without one, your listing appears as Resource; no subtype is guessed.\n\n2- enrola el proyecto para que se sincronice con engram cloud\n3- el sidebar debe tomar los colores del theme que este seleccionado"
@@ -77,3 +82,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L19** — T16 outcome: R3-1/R4-3 = glued import line (fixed); R4-2 = Context tab showed failure text while the context query was still pending (fixed with contextPending marker, RED-first test); R3-2, R3-3, R3-4, R4-1 = not actionable after re-derivation (assertion is deterministic behind setImmediate; rollup parsing covers legacy shapes; timestamp handling correct).
 - **L20** — v0.4 verification: `npm run check` 62/62; live collection against oniricosistemas/gentle-shell-PR#18 returned the merged/closed events and 3 workflow runs (head + merge commit). Discovered during live validation: `gh api --repo` is not a valid flag (the check-run/annotations lookups in the context collector were silently degraded by it) and the Actions API accepts one head_sha per request (per-SHA calls, dedup by run id).
 - **L21** — v0.5 verification: `npm run check` 68/68; RED-first for collector, filters, and panel. Command center is a capturing centered panel (Esc closes) because it aggregates several repositories; the sidebar stays single-repo.
+- **L22** — "revisa los comentarios en los pr que dejo el agente revisor" — 15 hallazgos verificados de `onirico-ai-pr-reviewer` en #23-#27 (todos CHANGES_REQUESTED), re-derivados como reales; "dale con todo" — ronda unica de correccion en `fix/reviewer-findings` apilada sobre `feat/inbox-ui` (PR #28 previsto). El conflicto de #23 ya se resolvio en la linea `feat/command-center` (merge `003d3db`).

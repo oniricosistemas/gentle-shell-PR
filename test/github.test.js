@@ -164,6 +164,7 @@ test("normalizePullRequest derives bounded CI, review, and merge facts", () => {
 
   assert.deepEqual(normalized, {
     number: 42,
+    author: "unknown",
     title: "Add PR sidebar",
     url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
     headBranch: "feat/sidebar",
@@ -509,4 +510,125 @@ test("timeline collector bounds events and runs and degrades gracefully", async 
   assert.equal(result.error, undefined);
   assert.equal(result.timeline.events.length, 10);
   assert.deepEqual(result.timeline.workflowRuns, []);
+});
+
+test("inbox collector discovers workspace repositories and aggregates their pull requests", async () => {
+  const calls = [];
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    execute: async (command, args, options) => {
+      calls.push([args[0], args[1], options?.cwd]);
+      if (command === "find") {
+        assert.equal(args[0], "/workspace", "discovery walks the parent directory");
+        return { exitCode: 0, stdout: "/workspace/pr-flow\n/workspace/stockia\n/workspace/pr-flow/node_modules", stderr: "" };
+      }
+      if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
+        return options?.cwd === "/workspace/pr-flow"
+          ? { exitCode: 0, stdout: "https://github.com/oniricosistemas/gentle-shell-PR.git\n", stderr: "" }
+          : { exitCode: 1, stdout: "", stderr: "" };
+      }
+      if (command === "gh" && args[0] === "pr") {
+        return { exitCode: 0, stdout: JSON.stringify([
+          { number: 58, title: "Add cross-repo inbox filters", url: "u", headRefName: "a", baseRefName: "main", isDraft: false, reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED", latestReviews: [], updatedAt: "2026-11-13T12:00:00Z", author: { login: "lmsastre" } },
+        ]), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected" };
+    },
+    limit: 3,
+  });
+
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.repositories, [
+    { repository: "oniricosistemas/gentle-shell-PR", cwd: "/workspace/pr-flow", current: true },
+  ]);
+  assert.equal(result.inbox.length, 1);
+  assert.equal(result.inbox[0].repository, "oniricosistemas/gentle-shell-PR");
+  assert.equal(result.inbox[0].pullRequests[0].number, 58);
+  // node_modules is never probed.
+  assert.equal(calls.some(([, arg]) => arg === "/workspace/pr-flow/node_modules"), false);
+});
+
+test("inbox collector bounds discovery depth and per-repository requests", async () => {
+  const repos = Array.from({ length: 12 }, (_, index) => `/workspace/repo${index}`);
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace",
+    execute: async (command, args, options) => {
+      if (command === "find") return { exitCode: 0, stdout: repos.join("\n"), stderr: "" };
+      if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
+        return { exitCode: 0, stdout: `https://github.com/owner/repo${options?.cwd?.match(/repo(\d+)/)?.[1]}.git\n`, stderr: "" };
+      }
+      const bounded = Math.min(8, Number(args[args.indexOf("--limit") + 1] ?? 8));
+      return { exitCode: 0, stdout: JSON.stringify(Array.from({ length: bounded }, (_, index) => ({
+        number: index, title: `PR ${index}`, url: "u", headRefName: "a", baseRefName: "main", isDraft: false,
+        reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED", latestReviews: [], updatedAt: "2026-11-13T12:00:00Z",
+      }))), stderr: "" };
+    },
+    limit: 5,
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.repositories.length, 8);
+  assert.equal(result.inbox.length, 8);
+  assert.equal(result.inbox.every((entry) => entry.pullRequests.length <= 5), true);
+  assert.equal(result.inbox[0].pullRequests.every((pr) => pr.author === "unknown"), true);
+});
+
+test("inbox collector degrades gracefully offline and reports per-repository failures", async () => {
+  const failing = async () => { throw new Error("offline"); };
+  const offline = await github.collectPullRequestInbox({ cwd: "/w", execute: failing, limit: 3 });
+  assert.equal(offline.error, undefined);
+  assert.deepEqual(offline.repositories, []);
+  assert.deepEqual(offline.inbox, []);
+
+  // A GitHub failure for one repository does not break the rest.
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace",
+    execute: async (command, args, options) => {
+      if (command === "find") return { exitCode: 0, stdout: "/workspace/a\n/workspace/b", stderr: "" };
+      if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.slice(-1)}.git\n`, stderr: "" };
+      }
+      return args[3]?.endsWith("/a")
+        ? { exitCode: 1, stdout: "", stderr: "gh failed" }
+        : { exitCode: 0, stdout: "[]", stderr: "" };
+    },
+    limit: 3,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.inbox.length, 2);
+  assert.equal(result.inbox.find((entry) => entry.repository === "owner/a")?.error, "Could not load pull requests");
+  assert.deepEqual(result.inbox.find((entry) => entry.repository === "owner/b")?.pullRequests, []);
+});
+
+test("inbox filters are pure local views over the aggregated inbox", () => {
+  const inbox = [
+    { repository: "owner/current", cwd: "/w/current", error: undefined, pullRequests: [
+      { number: 1, title: "A", author: "lmsastre", headBranch: "a", review: "waiting", merge: "blocked", checks: { passed: 2, failed: 0, pending: 1, total: 3 } },
+      { number: 2, title: "B", author: "octo", headBranch: "b", review: "approved", merge: "ready", checks: { passed: 3, failed: 1, pending: 0, total: 4 } },
+    ] },
+    { repository: "owner/other", cwd: "/w/other", error: undefined, pullRequests: [
+      { number: 3, title: "C", author: "lmsastre", headBranch: "c", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+    ] },
+    { repository: "owner/broken", cwd: "/w/broken", error: "Could not load pull requests", pullRequests: [] },
+  ];
+
+  // Owner filter keeps repository grouping and only that owner's PRs.
+  const owned = github.filterPullRequestInbox(inbox, { owner: "lmsastre" });
+  assert.deepEqual(owned.map((entry) => entry.repository), ["owner/current", "owner/other", "owner/broken"]);
+  assert.deepEqual(owned[0].pullRequests.map((pr) => pr.number), [1]);
+  assert.deepEqual(owned[2].pullRequests, []);
+
+  // Attention filters select at-risk pull requests across repositories.
+  const reviewRequested = github.filterPullRequestInbox(inbox, { attention: "review_requested" });
+  assert.deepEqual(reviewRequested[0].pullRequests.map((pr) => pr.number), [1]);
+  assert.deepEqual(reviewRequested[1].pullRequests, []);
+  const failedCi = github.filterPullRequestInbox(inbox, { attention: "failed_ci" });
+  assert.deepEqual(failedCi[0].pullRequests.map((pr) => pr.number), [2]);
+
+  // No filter returns the input untouched (same order, same groups).
+  assert.deepEqual(github.filterPullRequestInbox(inbox, {}), inbox);
+
+  // Empty and offline inputs degrade to empty views without errors.
+  assert.deepEqual(github.filterPullRequestInbox([], { owner: "lmsastre" }), []);
+  assert.deepEqual(github.filterPullRequestInbox(undefined, { attention: "failed_ci" }), []);
 });

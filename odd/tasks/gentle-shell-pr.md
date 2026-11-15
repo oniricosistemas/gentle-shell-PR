@@ -57,7 +57,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 
 ## Tasks (continuacion)
 
-- [ ] **T24** — S21 — Route: parent — Re-derive and apply the 15 verified findings from `onirico-ai-pr-reviewer` on #23-#27 (extension.js session races, github.js timeline/inbox, inspector.js render, sidebar.js command center). Tests first where a rule is pinneable. Commits: pending in this batch.
+- [x] **T24** — S21 — Route: parent — Re-derive and apply the 15 verified findings from `onirico-ai-pr-reviewer` on #23-#27 (extension.js session races, github.js timeline/inbox, inspector.js render, sidebar.js command center). Tests first where a rule is pinneable. Commits: `5a10a17` (session races + timeline decoupling), `4606d89` (timeline data), `a86986b` (timeline UI), `853f6ab` (inbox data), `0669486` (command center).
 
 ## Log
 
@@ -83,3 +83,4 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L20** — v0.4 verification: `npm run check` 62/62; live collection against oniricosistemas/gentle-shell-PR#18 returned the merged/closed events and 3 workflow runs (head + merge commit). Discovered during live validation: `gh api --repo` is not a valid flag (the check-run/annotations lookups in the context collector were silently degraded by it) and the Actions API accepts one head_sha per request (per-SHA calls, dedup by run id).
 - **L21** — v0.5 verification: `npm run check` 68/68; RED-first for collector, filters, and panel. Command center is a capturing centered panel (Esc closes) because it aggregates several repositories; the sidebar stays single-repo.
 - **L22** — "revisa los comentarios en los pr que dejo el agente revisor" — 15 hallazgos verificados de `onirico-ai-pr-reviewer` en #23-#27 (todos CHANGES_REQUESTED), re-derivados como reales; "dale con todo" — ronda unica de correccion en `fix/reviewer-findings` apilada sobre `feat/inbox-ui` (PR #28 previsto). El conflicto de #23 ya se resolvio en la linea `feat/command-center` (merge `003d3db`).
+- **L23** — T24 outcome: los 15 hallazgos re-derivados como reales y corregidos. No pinneables como test: el render en hora local (S25-5, se mantiene como UX intendida; los tests de timeline dejaron de asumir UTC). RED-first en los demas: carreras de sesion y timeline decoplado (#23/#25), recencia del timeline y fragmentos lifecycle (#24), degradacion por repo y comparacion de rutas (#26), checks sin datos/segmentos/ownerIndex (#27). Verificacion: `npm run check` 80/80.

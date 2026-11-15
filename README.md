@@ -84,7 +84,11 @@ The v0.3 inspector adds a fourth tab:
 
 - **Context** — read-only review context for faster diagnosis: linked issues pulled from the pull request's closing references, unresolved review threads with their `file:line` location, and the failed check with a bounded, sanitized excerpt and annotations. Press `Enter` on that tab to expand or collapse the failed-check excerpt. All context is local-only; a collection failure degrades to an unavailable tab without affecting the loaded details.
 
-Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `1`–`4` to jump to a tab, `j`/`k` to scroll, `Enter` to expand the failed-check excerpt on the Context tab, `o` to open GitHub, and `Esc` to close the inspector.
+The v0.4 inspector adds a fifth tab:
+
+- **Timeline** — the pull request's story on one read-only line per entry: lifecycle events (reviews, merge, closed/ready/draft transitions) and GitHub Actions runs associated with the pull request's head or merge commit, including deployments that keep running after the merge. A merged pull request always shows its merge row even when the bounded event list is empty. Timeline is local-only and degrades like the Context tab.
+
+Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `1`–`5` to jump to a tab, `j`/`k` to scroll, `Enter` to expand the failed-check excerpt on the Context tab, `o` to open GitHub, and `Esc` to close the inspector.
 
 ## Commands
 

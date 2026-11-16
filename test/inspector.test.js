@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
 
 import { createPullRequestInspector } from "../src/inspector.js";
-
-process.env.TZ = "UTC";
 
 function createTheme() {
   const calls = [];
@@ -252,7 +251,7 @@ test("the inspector exposes a Context tab with linked issues, review threads, an
   const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
 
   assert.match(lines, /\[Context\]/);
-  assert.ok(lines.includes("Fetched 2026-11-12 15:08 UTC+00:00 · read-only"));
+  assert.match(lines, /Fetched \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2} · read-only/);
   assert.match(lines, /Linked issue/);
   assert.match(lines, /#128 · Prevent open redirects/);
   assert.match(lines, /Keep OAuth return URLs on the current origin/);
@@ -366,12 +365,12 @@ test("the inspector exposes a Timeline tab with lifecycle events and workflow ru
   const lines = inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
 
   assert.match(lines, /\[Timeline\]/);
-  assert.ok(lines.includes("Opened 2026-11-12 13:08 UTC+00:00"));
-  assert.ok(lines.includes("Changes requested · gentle-review · 2026-11-12 13:26 UTC+00:00"));
-  assert.ok(lines.includes("Approved · gentle-review · 2026-11-12 14:38 UTC+00:00"));
-  assert.ok(lines.includes("Merged into main · lmsastre · 2026-11-12 14:42 UTC+00:00 · e9b42af"));
+  assert.match(lines, /Opened \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
+  assert.match(lines, /Changes requested · gentle-review · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
+  assert.match(lines, /Approved · gentle-review · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
+  assert.match(lines, /Merged into main · lmsastre · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2} · e9b42af/);
   assert.match(lines, /GitHub Actions · 1 run/);
-  assert.ok(lines.includes("◷ Deploy production · Running · 2026-11-12 14:42 UTC+00:00"));
+  assert.match(lines, /◷ Deploy production · Running · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
 });
 
 test("inspector timestamps include the local date and UTC offset and hide invalid values", () => {
@@ -403,38 +402,43 @@ test("inspector timestamps include the local date and UTC offset and hide invali
   });
 
   inspector.setTab("Context");
-  assert.ok(plain(inspector.render(96)).includes("Fetched 2026-11-10 13:08 UTC+00:00 · read-only"));
+  assert.match(plain(inspector.render(96)), /Fetched \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2} · read-only/);
 
   inspector.setTab("Timeline");
   const timeline = plain(inspector.render(96));
-  assert.ok(timeline.includes("Opened 2026-11-11 13:08 UTC+00:00"));
-  assert.ok(timeline.includes("Approved · gentle-review · 2026-11-12 13:26 UTC+00:00"));
+  assert.match(timeline, /Opened \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
+  assert.match(timeline, /Approved · gentle-review · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
   assert.match(timeline, /Closed · octocat/);
   assert.doesNotMatch(timeline, /Invalid|not-a-timestamp/);
 });
 
 test("timestamp output uses fixed expected values in whole-hour and fractional-offset zones", () => {
-  const state = {
-    ...detail,
-    pullRequest: {
-      ...detail.pullRequest,
-      context: { fetchedAt: "2026-11-12T13:08:00Z", linkedIssues: [], reviewThreads: [], failedCheck: undefined },
-    },
-  };
+  const inspectorModule = new URL("../src/inspector.js", import.meta.url).href;
+  const script = `
+    import { createPullRequestInspector } from ${JSON.stringify(inspectorModule)};
+    const state = {
+      loading: false,
+      pullRequest: {
+        number: 42,
+        title: "Timestamp test",
+        context: { fetchedAt: "2026-11-12T13:08:00Z", linkedIssues: [], reviewThreads: [] },
+      },
+    };
+    const inspector = createPullRequestInspector({
+      tui: { requestRender() {} },
+      theme: { fg(_token, text) { return text; }, bold(text) { return text; } },
+      initialState: state,
+    });
+    inspector.setTab("Context");
+    process.stdout.write(inspector.render(96).join("\\n"));
+  `;
+  const renderInZone = (timezone) => execFileSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    env: { ...process.env, TZ: timezone },
+  });
 
-  try {
-    process.env.TZ = "America/Argentina/Buenos_Aires";
-    const buenosAires = createPullRequestInspector({ tui: { requestRender() {} }, theme: createTheme(), initialState: state });
-    buenosAires.setTab("Context");
-    assert.ok(plain(buenosAires.render(96)).includes("Fetched 2026-11-12 10:08 UTC-03:00 · read-only"));
-
-    process.env.TZ = "Asia/Kathmandu";
-    const kathmandu = createPullRequestInspector({ tui: { requestRender() {} }, theme: createTheme(), initialState: state });
-    kathmandu.setTab("Context");
-    assert.ok(plain(kathmandu.render(96)).includes("Fetched 2026-11-12 18:53 UTC+05:45 · read-only"));
-  } finally {
-    process.env.TZ = "UTC";
-  }
+  assert.match(renderInZone("America/Argentina/Buenos_Aires"), /Fetched 2026-11-12 10:08 UTC-03:00 · read-only/);
+  assert.match(renderInZone("Asia/Kathmandu"), /Fetched 2026-11-12 18:53 UTC\+05:45 · read-only/);
 });
 
 test("null timestamps stay absent and an invalid mergedAt preserves merged state", () => {

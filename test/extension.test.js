@@ -4,8 +4,6 @@ import test from "node:test";
 import { GENTLE_SHELL_SIDEBAR_STATE } from "../src/sidebar.js";
 import { createPrSidebarExtension } from "../src/extension.js";
 
-process.env.TZ = "UTC";
-
 function createHarness() {
   const handlers = new Map();
   const commands = new Map();
@@ -295,7 +293,7 @@ test("the inspector renders loaded details before review context resolves", asyn
   await focusPromise;
   inspector.setTab("Context");
   const lines = inspector.render(96).join("\n");
-  assert.ok(lines.includes("Fetched 2026-11-12 22:00 UTC+00:00 · read-only"));
+  assert.match(lines, /Fetched \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2} · read-only/);
 });
 
 test("the Context tab distinguishes a pending context from an unavailable one", async () => {

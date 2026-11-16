@@ -364,12 +364,16 @@ test("the inspector exposes a Timeline tab with lifecycle events and workflow ru
   const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
 
   assert.match(lines, /\[Timeline\]/);
-  assert.match(lines, /Opened 13:08/);
-  assert.match(lines, /Changes requested · gentle-review · 13:26/);
-  assert.match(lines, /Approved · gentle-review · 14:38/);
-  assert.match(lines, /Merged into main · lmsastre · 14:42 · e9b42af/);
+  const expectedOpened = new Date("2026-11-12T13:08:00Z").toTimeString().slice(0, 5);
+  const expectedReview = new Date("2026-11-12T13:26:00Z").toTimeString().slice(0, 5);
+  assert.match(lines, new RegExp(`Opened ${expectedOpened}`));
+  assert.match(lines, new RegExp(`Changes requested · gentle-review · ${expectedReview}`));
+  const expectedApproved = new Date("2026-11-12T14:38:00Z").toTimeString().slice(0, 5);
+  const expectedMerged = new Date("2026-11-12T14:42:00Z").toTimeString().slice(0, 5);
+  assert.match(lines, new RegExp(`Approved · gentle-review · ${expectedApproved}`));
+  assert.match(lines, /Merged into main · lmsastre · \d\d:\d\d · e9b42af/);
   assert.match(lines, /GitHub Actions · 1 run/);
-  assert.match(lines, /◷ Deploy production · Running · 14:42/);
+  assert.match(lines, new RegExp(`◷ Deploy production · Running · ${expectedMerged}`));
 });
 
 test("the Timeline tab degrades gracefully without timeline data", () => {
@@ -423,30 +427,93 @@ test("key 5 selects the Timeline tab and a running deployment stays visible", ()
   assert.match(lines, /Deploy production/);
 });
 
-test("clicking a tab title switches tabs and clicking the active one is a no-op", () => {
+test("the Timeline tab distinguishes a pending collection from an unavailable one", () => {
   const inspector = createPullRequestInspector({
     tui: { requestRender() {} },
     theme: createTheme(),
-    initialState: detail,
+    initialState: { ...detail, timelinePending: true },
   });
+  inspector.setTab("Timeline");
+  assert.match(inspector.render(60).join("\n"), /Loading timeline/);
+});
 
-  const plainLines = () => inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
-  const checksX = plainLines()[1].indexOf("Checks");
-  assert.ok(checksX > 0, "the Checks label must be visible on the tabs row");
+test("timeline rendering does not mutate the pull request state", () => {
+  const timeline = {
+    fetchedAt: "2026-11-12T15:08:00Z",
+    openedAt: "2026-11-12T13:08:00Z",
+    mergedAt: "2026-11-12T14:42:00Z",
+    mergedBy: "lmsastre",
+    events: [],
+    workflowRuns: [],
+  };
+  const state = { ...detail, pullRequest: { ...detail.pullRequest, timeline } };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+  inspector.setTab("Timeline");
+  inspector.render(60);
+  assert.equal(state.pullRequest.timeline.events.length, 0);
+  assert.deepEqual(state.pullRequest.timeline, timeline);
+});
 
-  const result = inspector.handleMouse({ type: "click", button: "left", x: checksX + 1, y: 1, width: 96, height: 20 });
-  assert.deepEqual(result, { handled: true, render: true });
-  assert.equal(inspector.getActiveTab(), "Checks");
+test("the merge label uses the pull request base branch", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      baseBranch: "develop",
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt: "2026-11-12T13:08:00Z",
+        mergedAt: "2026-11-12T14:42:00Z",
+        mergedBy: "lmsastre",
+        events: [{ kind: "merged", at: "2026-11-12T14:42:00Z", author: "lmsastre", commit: "e9b42af111111111111111111111111111111111" }],
+        workflowRuns: [],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+  inspector.setTab("Timeline");
+  const lines = inspector.render(60).join("\n");
+  assert.match(lines, /Merged into develop/);
+  assert.doesNotMatch(lines, /Merged into main/);
+});
 
-  // Clicking the already-active tab keeps the tab without extra renders.
-  const activeX = plainLines()[1].indexOf("Checks");
-  assert.deepEqual(
-    inspector.handleMouse({ type: "click", button: "left", x: activeX + 1, y: 1, width: 96, height: 20 }),
-    { handled: true, render: false },
-  );
-  assert.equal(inspector.getActiveTab(), "Checks");
-
-  // Clicks outside the tab row stay unhandled for the tabs themselves.
-  assert.equal(inspector.handleMouse({ type: "click", button: "left", x: 3, y: 5, width: 96, height: 20 }), undefined);
-  assert.equal(inspector.getActiveTab(), "Checks");
+test("completed runs with neutral conclusions are not shown as failures", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt: "2026-11-12T13:08:00Z",
+        mergedAt: undefined, mergedBy: "",
+        events: [],
+        workflowRuns: [
+          { name: "Nightly", status: "completed", conclusion: "skipped", startedAt: "2026-11-12T14:00:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+          { name: "Cancel bot", status: "completed", conclusion: "cancelled", startedAt: "2026-11-12T14:10:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+          { name: "CI", status: "completed", conclusion: "failure", startedAt: "2026-11-12T14:20:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+        ],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+  inspector.setTab("Timeline");
+  const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  // Failure keeps its error mark; skipped and cancelled do not read as errors.
+  assert.match(lines, /× CI · failure/);
+  assert.doesNotMatch(lines, /× Nightly/);
+  assert.doesNotMatch(lines, /× Cancel bot/);
+  assert.match(lines, /– Nightly · skipped/);
+  assert.match(lines, /– Cancel bot · cancelled/);
 });

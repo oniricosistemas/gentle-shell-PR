@@ -338,3 +338,163 @@ test("the Context tab distinguishes a pending context from an unavailable one", 
   await focusPromise;
   assert.match(inspector.render(96).join("\n"), /Review context is unavailable/);
 });
+
+test("the timeline is still collected when the context query fails", async () => {
+  const harness = createHarness();
+  const focusedResult = {
+    repository: "oniricosistemas/gentle-shell-PR",
+    branch: "feat/sidebar",
+    pullRequests: [{
+      number: 42, title: "Add PR sidebar", url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
+      headBranch: "feat/sidebar", baseBranch: "main", isDraft: false, review: "approved", merge: "ready",
+      checks: { passed: 1, failed: 0, pending: 0, total: 1 }, updatedAt: "2026-11-05T12:00:00Z",
+    }],
+    error: undefined,
+  };
+  const timelineCalls = [];
+  createPrSidebarExtension({
+    collect: async () => focusedResult,
+    collectDetail: async () => ({
+      repository: focusedResult.repository,
+      error: undefined,
+      pullRequest: {
+        ...focusedResult.pullRequests[0], bodySummary: "", author: "octocat", labels: [],
+        state: "OPEN", additions: 1, deletions: 1, changedFiles: 1, checks: [], files: [],
+      },
+    }),
+    collectContext: async () => {
+      throw new Error("context query failed");
+    },
+    collectTimeline: async ({ number }) => {
+      timelineCalls.push(number);
+      return {
+        repository: focusedResult.repository,
+        error: undefined,
+        timeline: {
+          fetchedAt: "2026-11-12T15:08:00Z",
+          openedAt: "2026-11-12T13:08:00Z",
+          mergedAt: undefined, mergedBy: "",
+          events: [{ kind: "review", state: "CHANGES_REQUESTED", at: "2026-11-12T13:26:00Z", author: "gentle-review" }],
+          workflowRuns: [],
+        },
+      };
+    },
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  })(harness.pi);
+
+  await harness.handlers.get("session_start")({}, harness.context);
+  const focusPromise = harness.commands.get("pr-focus").handler("", harness.context);
+  await new Promise((resolve) => setImmediate(resolve));
+  const inspector = harness.ui.customs[1].component;
+
+  await focusPromise;
+  assert.deepEqual(timelineCalls, [42]);
+  // A context failure must not take the timeline down with it.
+  inspector.setTab("Context");
+  assert.match(inspector.render(96).join("\n"), /Review context is unavailable/);
+  inspector.setTab("Timeline");
+  const lines = inspector.render(96).join("\n");
+  assert.doesNotMatch(lines, /Timeline is unavailable/);
+  const expectedTime = new Date("2026-11-12T13:26:00Z").toTimeString().slice(0, 5);
+  assert.match(lines, new RegExp(`Changes requested .* ${expectedTime}`));
+});
+
+test("the timeline pending marker starts only when timeline collection starts", async () => {
+  const harness = createHarness();
+  const focusedResult = {
+    repository: "oniricosistemas/gentle-shell-PR",
+    branch: "feat/sidebar",
+    pullRequests: [{
+      number: 42, title: "Add PR sidebar", url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
+      headBranch: "feat/sidebar", baseBranch: "main", isDraft: false, review: "approved", merge: "ready",
+      checks: { passed: 1, failed: 0, pending: 0, total: 1 }, updatedAt: "2026-11-05T12:00:00Z",
+    }],
+    error: undefined,
+  };
+  let releaseContext;
+  const contextPromise = new Promise((resolve) => { releaseContext = resolve; });
+  const timelineCalls = [];
+  createPrSidebarExtension({
+    collect: async () => focusedResult,
+    collectDetail: async () => ({
+      repository: focusedResult.repository,
+      error: undefined,
+      pullRequest: {
+        ...focusedResult.pullRequests[0], bodySummary: "", author: "octocat", labels: [],
+        state: "OPEN", additions: 1, deletions: 1, changedFiles: 1, checks: [], files: [],
+      },
+    }),
+    collectContext: () => contextPromise,
+    collectTimeline: async ({ number }) => {
+      timelineCalls.push(number);
+      return {
+        repository: focusedResult.repository,
+        error: undefined,
+        timeline: { fetchedAt: "2026-11-12T15:08:00Z", openedAt: "2026-11-12T13:08:00Z", mergedAt: undefined, mergedBy: "", events: [], workflowRuns: [] },
+      };
+    },
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  })(harness.pi);
+
+  await harness.handlers.get("session_start")({}, harness.context);
+  const focusPromise = harness.commands.get("pr-focus").handler("", harness.context);
+  await new Promise((resolve) => setImmediate(resolve));
+  const inspector = harness.ui.customs[1].component;
+  inspector.setTab("Timeline");
+  // While only the context query is in flight, the Timeline tab must not
+  // claim to be loading: the timeline fetch has not started yet.
+  const pendingLines = inspector.render(96).join("\n");
+  assert.doesNotMatch(pendingLines, /Loading timeline/);
+  assert.match(pendingLines, /Timeline is unavailable/);
+
+  releaseContext({ repository: focusedResult.repository, error: undefined, context: { fetchedAt: "2026-11-12T22:00:00Z", linkedIssues: [], reviewThreads: [], failedCheck: undefined } });
+  await focusPromise;
+  assert.deepEqual(timelineCalls, [42]);
+});
+
+test("the timeline fetch is skipped when the session is already stopped", async () => {
+  const harness = createHarness();
+  const focusedResult = {
+    repository: "oniricosistemas/gentle-shell-PR",
+    branch: "feat/sidebar",
+    pullRequests: [{
+      number: 42, title: "Add PR sidebar", url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
+      headBranch: "feat/sidebar", baseBranch: "main", isDraft: false, review: "approved", merge: "ready",
+      checks: { passed: 1, failed: 0, pending: 0, total: 1 }, updatedAt: "2026-11-05T12:00:00Z",
+    }],
+    error: undefined,
+  };
+  let releaseContext;
+  const contextPromise = new Promise((resolve) => { releaseContext = resolve; });
+  const timelineCalls = [];
+  createPrSidebarExtension({
+    collect: async () => focusedResult,
+    collectDetail: async () => ({
+      repository: focusedResult.repository,
+      error: undefined,
+      pullRequest: {
+        ...focusedResult.pullRequests[0], bodySummary: "", author: "octocat", labels: [],
+        state: "OPEN", additions: 1, deletions: 1, changedFiles: 1, checks: [], files: [],
+      },
+    }),
+    collectContext: () => contextPromise,
+    collectTimeline: async ({ number }) => {
+      timelineCalls.push(number);
+      return { repository: focusedResult.repository, error: undefined, timeline: { fetchedAt: "", openedAt: "", mergedAt: undefined, mergedBy: "", events: [], workflowRuns: [] } };
+    },
+    setIntervalFn: () => 1,
+    clearIntervalFn() {},
+  })(harness.pi);
+
+  await harness.handlers.get("session_start")({}, harness.context);
+  const focusPromise = harness.commands.get("pr-focus").handler("", harness.context);
+  await new Promise((resolve) => setImmediate(resolve));
+  // The session stops while the context query is still in flight.
+  harness.handlers.get("session_shutdown")({}, harness.context);
+  releaseContext({ repository: focusedResult.repository, error: undefined, context: { fetchedAt: "2026-11-12T22:00:00Z", linkedIssues: [], reviewThreads: [], failedCheck: undefined } });
+  await focusPromise;
+  // No GitHub request may be spent on a discarded result.
+  assert.deepEqual(timelineCalls, []);
+});

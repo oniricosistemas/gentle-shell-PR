@@ -58,6 +58,7 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 ## Tasks (continuacion)
 
 - [x] **T23** — S20 — Route: parent — Clickable tab titles in the inspector modal (hit regions per tab label, mouse routing). Tests first. Commit: `b814d92` (on `feat/command-center`).
+- [x] **T24** — S21 — Route: parent — Re-derive and apply the 15 verified findings from `onirico-ai-pr-reviewer` on #23-#27 (extension.js session races, github.js timeline/inbox, inspector.js render, sidebar.js command center). Tests first where a rule is pinneable. Commits: `5a10a17` (session races + timeline decoupling), `4606d89` (timeline data), `a86986b` (timeline UI), `853f6ab` (inbox data), `0669486` (command center).
 
 ## Log
 
@@ -84,3 +85,8 @@ Repository target: `https://github.com/oniricosistemas/gentle-shell-PR`.
 - **L21** — v0.5 verification: `npm run check` 68/68; RED-first for collector, filters, and panel. Command center is a capturing centered panel (Esc closes) because it aggregates several repositories; the sidebar stays single-repo.
 - **L22** — "antes agreguemos algo mas.... cuando se abre el modal con el pr, los titulos de los tabs no son clickeables, deberian serlo no? para no obligar a usar el tab" — nueva tarea T23 antes de la entrega.
 - **L23** — Cadena de review slices (#24-#27 sobre #23) creada para respetar el presupuesto de 400 lineas por slice; el arbol de `feat/command-center` ya contiene el contenido de la cadena mas T23 y la expansion del rail. Resolucion del conflicto de #23: merge de `fix/inspector-backlog` en `feat/command-center` (los cambios del backlog ya estaban contenidos en forma evolucionada).
+
+- **L24** — "revisa los comentarios en los pr que dejo el agente revisor" + "dale con todo" — 15 hallazgos verificados de `onirico-ai-pr-reviewer` en #23-#27, re-derivados como reales y corregidos en ronda unica en `fix/reviewer-findings` apilada sobre `feat/inbox-ui` (PR #28). RED-first en lo pinneable; el render en hora local se mantiene como UX intendida y los tests dejaron de asumir UTC. Verificacion: `npm run check` 80/80.
+- **L25** — Re-review de #28 (3 hallazgos: 1 alta, 2 medias): `last: 40` en la query de timeline (verificado en vivo que la conexion soporta `last`), owner por identidad y no por posicion en setState, resets de pending condicionados al numero objetivo (defensivo, no alcanzable bajo el grafo actual). Verificacion: 82/82. Commit `b880d81`.
+- **L26** — Segunda re-review (2 hallazgos): `timelinePending` encendido recien al iniciar el fetch del timeline y fetch del timeline saltado si la sesion ya no es la objetivo (cero llamadas GitHub post-mortem). Verificacion: 84/84. Commit `b65c8e4`.
+- **L27** — Tercera re-review (1 media, 2 bajas): comparacion de rutas case-insensitive en darwin/win32 (corregida con test RED inyectando `platform`); guard por intento y `truncateText` con ancho <= 0 no alcanzables, documentados. Verificacion: 85/85. Commit `076912e`.

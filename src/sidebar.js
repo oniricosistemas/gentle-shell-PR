@@ -95,6 +95,16 @@ export function createCommandCenterPanel({ tui, theme, initialState }) {
     if (reviewRequested > 0) lines.push(row(`◇ Review requested · ${reviewRequested}`, "warning"));
     if (failedCi > 0) lines.push(row(`× Failed CI · ${failedCi}`, "error"));
 
+    // The checks icon carries its own semantic color as a separate segment:
+    // painting it inside the review-colored row would nest resets and make
+    // the truncation count ANSI bytes. A pull request without checks data
+    // renders as unknown, never as a green successful build.
+    const checksIcon = (pr) => pr.checks?.failed > 0
+      ? paint("error", "×")
+      : pr.checks?.pending > 0 ? paint("warning", "◷")
+      : pr.checks?.total > 0 ? paint("success", "✓")
+      : paint("muted", "–");
+
     for (const entry of filtered) {
       if (entry.error) {
         lines.push(row(`${entry.repository} · could not load pull requests`, "error"));
@@ -108,10 +118,8 @@ export function createCommandCenterPanel({ tui, theme, initialState }) {
         const reviewToken = pr.review === "changes_requested" ? "error"
           : pr.review === "approved" ? "success"
           : pr.review === "waiting" ? "warning" : "muted";
-        const checks = pr.checks?.failed > 0
-          ? paint("error", "×")
-          : pr.checks?.pending > 0 ? paint("warning", "◷") : paint("success", "✓");
-        lines.push(row(`  ${checks} #${pr.number} ${pr.title}`, reviewToken));
+        const title = truncateText(`#${pr.number} ${pr.title}`, boundedWidth - 4);
+        lines.push(`  ${checksIcon(pr)}${paint(reviewToken, ` ${title}`)}`);
         lines.push(row(`    @${pr.author} · ${pr.headBranch}`, "muted"));
       }
     }
@@ -129,7 +137,13 @@ export function createCommandCenterPanel({ tui, theme, initialState }) {
     invalidate: () => tui.requestRender(),
     digest: () => JSON.stringify({ inbox, ownerIndex, attentionIndex }),
     setState(next) {
+      // The selected owner follows identity, not position: re-find the author
+      // by name after the inbox changes; fall back to All owners when the
+      // author disappeared.
+      const selectedOwner = ownerIndex > 0 ? owners()[ownerIndex] : undefined;
       inbox = next?.inbox ?? inbox;
+      const nextIndex = selectedOwner ? owners().indexOf(selectedOwner) : 0;
+      ownerIndex = nextIndex >= 0 ? nextIndex : 0;
       tui.requestRender();
     },
     getInbox: () => inbox,

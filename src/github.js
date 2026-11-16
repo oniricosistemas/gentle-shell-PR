@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, resolve as resolvePath } from "node:path";
 
 const PR_FIELDS = [
   "number",
@@ -350,12 +350,16 @@ query($owner: String!, $name: String!, $number: Int!) {
       mergedBy { login }
       headRefName
       headRefOid
-      timelineItems(first: 40, itemTypes: [PULL_REQUEST_REVIEW, MERGED_EVENT, CLOSED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, REVIEW_DISMISSED_EVENT]) {
+      mergeCommit { oid }
+      timelineItems(last: 40, itemTypes: [PULL_REQUEST_REVIEW, MERGED_EVENT, CLOSED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, REVIEW_DISMISSED_EVENT]) {
         nodes {
           __typename
           ... on PullRequestReview { state submittedAt author { login } }
           ... on MergedEvent { createdAt actor { login } commit { oid } }
           ... on ClosedEvent { createdAt actor { login } }
+          ... on ReadyForReviewEvent { createdAt actor { login } }
+          ... on ConvertToDraftEvent { createdAt actor { login } }
+          ... on ReviewDismissedEvent { createdAt actor { login } }
         }
       }
     }
@@ -400,9 +404,12 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
     return { repository, error: "GitHub returned invalid pull request timeline data", timeline: undefined };
   }
 
+  // Timeline items arrive oldest first; the bounded list keeps the most
+  // recent events of the requested window so merge and late reviews never
+  // fall off.
   const events = detailRows(pull.timelineItems?.nodes, 40)
     .filter((node) => node.__typename !== "IssueComment" && (node.submittedAt || node.createdAt))
-    .slice(0, TIMELINE_EVENT_LIMIT)
+    .slice(-TIMELINE_EVENT_LIMIT)
     .map((node) => {
       if (node.__typename === "PullRequestReview") {
         return { kind: "review", state: detailText(node.state, 30), at: timestamp(node.submittedAt), author: detailText(node.author?.login) };
@@ -429,8 +436,10 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
   const headSha = detailText(pull.headRefOid, 64);
   // Deployment runs follow the merge commit once the PR lands, so runs keyed
   // on either the pull request's head SHA or its merge commit SHA belong here.
+  // The merge commit comes from the pull request itself because a bounded
+  // event window can drop the MergedEvent node.
   const relevantShas = new Set(
-    [headSha, events.find((event) => event.kind === "merged")?.commit]
+    [headSha, pull.mergeCommit?.oid, events.find((event) => event.kind === "merged")?.commit]
       .filter((sha) => typeof sha === "string" && /^[0-9a-f]{40}$/i.test(sha)),
   );
   const workflowRuns = [];
@@ -479,6 +488,15 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
   };
 }
 
+function samePath(left, right, platform = process.platform) {
+  const resolvedLeft = resolvePath(String(left ?? "."));
+  const resolvedRight = resolvePath(String(right ?? "."));
+  if (platform === "win32" || platform === "darwin") {
+    return resolvedLeft.toLowerCase() === resolvedRight.toLowerCase();
+  }
+  return resolvedLeft === resolvedRight;
+}
+
 const INBOX_REPOSITORY_LIMIT = 8;
 
 /**
@@ -488,7 +506,7 @@ const INBOX_REPOSITORY_LIMIT = 8;
  * is local-only; GitHub queries are the same bounded read-only list the
  * sidebar uses. Every failure degrades without breaking the caller.
  */
-export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5 }) {
+export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5, platform = process.platform }) {
   const repositories = [];
   try {
     // Sibling workspaces live next to the current repository, so discovery
@@ -511,7 +529,12 @@ export async function collectPullRequestInbox({ cwd, execute = executeFile, limi
           repositories.push({
             repository,
             cwd: root,
-            current: root === String(cwd ?? "."),
+            // Discovery reports absolute normalized roots while the caller
+            // may pass a relative or trailing-slash cwd; compare resolved
+            // paths so the current repository is still marked as current.
+            // macOS and Windows compare paths case-insensitively, so those
+            // platforms also ignore capitalization differences.
+            current: samePath(root, cwd ?? ".", platform),
           });
         }
       }
@@ -523,13 +546,19 @@ export async function collectPullRequestInbox({ cwd, execute = executeFile, limi
 
   const inbox = [];
   for (const { repository, cwd: root } of boundedRepositories) {
-    const pullRequestsResult = await collectPullRequests({ cwd: root, execute, limit });
-    inbox.push({
-      repository,
-      cwd: root,
-      error: pullRequestsResult.error,
-      pullRequests: pullRequestsResult.error ? [] : pullRequestsResult.pullRequests,
-    });
+    // A repository whose collection throws degrades to an errored entry;
+    // one broken repository must not abort the rest of the inbox.
+    try {
+      const pullRequestsResult = await collectPullRequests({ cwd: root, execute, limit });
+      inbox.push({
+        repository,
+        cwd: root,
+        error: pullRequestsResult.error,
+        pullRequests: pullRequestsResult.error ? [] : pullRequestsResult.pullRequests,
+      });
+    } catch {
+      inbox.push({ repository, cwd: root, error: "Could not collect pull requests", pullRequests: [] });
+    }
   }
 
   return {

@@ -620,3 +620,116 @@ test("the command center panel cycles filters locally without touching state", (
   // Filter changes never mutate the source inbox.
   assert.deepEqual(panel.getInbox()[0].pullRequests.length, 1);
 });
+
+test("pull requests without checks data render a neutral mark, not success", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/nodata", cwd: "/w/nodata", error: undefined, pullRequests: [
+          { number: 9, title: "No CI data yet", author: "octo", headBranch: "n", review: "waiting", merge: "blocked", checks: undefined },
+        ] },
+        { repository: "owner/passing", cwd: "/w/passing", error: undefined, pullRequests: [
+          { number: 10, title: "Green build", author: "octo", headBranch: "g", review: "approved", merge: "ready", checks: { passed: 2, failed: 0, pending: 0, total: 2 } },
+        ] },
+      ],
+    },
+  });
+
+  const lines = panel.render(64).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+  // Missing checks data must not read as a green successful build.
+  assert.match(lines.join("\n"), /– #9 No CI data yet/);
+  assert.doesNotMatch(lines.join("\n"), /✓ #9/);
+  assert.match(lines.join("\n"), /✓ #10 Green build/);
+});
+
+test("pull request rows paint the checks icon and title as separate segments", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 11, title: "Segmented colors", author: "octo", headBranch: "s", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+
+  const raw = panel.render(64).find((line) => line.includes("#11"));
+  // The icon segment closes its own color before the title segment starts;
+  // an outer wrap around pre-painted text would nest resets mid-line.
+  assert.match(raw, /^  \u001b\[\d+m[✓×◷–]\u001b\[0m\u001b\[\d+m #\d+/);
+});
+
+test("setState keeps the owner filter on an author who survives the inbox change", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 1, title: "A", author: "lmsastre", headBranch: "x", review: "waiting", merge: "blocked", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+          { number: 2, title: "B", author: "octo", headBranch: "y", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+
+  panel.cycleOwner(); // -> lmsastre
+  panel.cycleOwner(); // -> octo
+  assert.match(panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n"), /Filter: octo/);
+
+  panel.setState({ inbox: [
+    { repository: "owner/b", cwd: "/w/b", error: undefined, pullRequests: [
+      { number: 3, title: "C", author: "octo", headBranch: "z", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+    ] },
+  ] });
+  const lines = panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  // The filter follows the author by identity: octo still exists in the
+  // shrunken inbox, so the selection survives instead of falling back.
+  assert.doesNotMatch(lines, /Filter: undefined/);
+  assert.match(lines, /Filter: octo/);
+  assert.match(lines, /#3 C/);
+});
+
+test("setState keeps the selected owner by identity, not position", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 1, title: "A", author: "lmsastre", headBranch: "x", review: "waiting", merge: "blocked", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+          { number: 2, title: "B", author: "octo", headBranch: "y", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+  const plain = () => panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  panel.cycleOwner(); // -> lmsastre
+  panel.cycleOwner(); // -> octo
+  assert.match(plain(), /Filter: octo/);
+
+  // octo moves to a different position: the filter follows the author.
+  panel.setState({ inbox: [
+    { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+      { number: 4, title: "D", author: "octo", headBranch: "w", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+    ] },
+  ] });
+  assert.match(plain(), /Filter: octo/);
+  assert.match(plain(), /#4 D/);
+
+  // octo disappears entirely: the filter falls back to All owners.
+  panel.setState({ inbox: [
+    { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+      { number: 5, title: "E", author: "newauthor", headBranch: "z", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+    ] },
+  ] });
+  assert.match(plain(), /Filter: All owners/);
+});

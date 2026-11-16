@@ -467,7 +467,9 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
         const region = tabHitRegions.find((candidate) => event.x >= candidate.startX && event.x < candidate.endX);
         if (!region) return undefined;
         if (region.index === activeTabIndex) return { handled: true, render: false };
-        changeTab(region.index);
+        activeTabIndex = region.index;
+        scrollOffset = 0;
+        requestRender();
         return { handled: true, render: true };
       }
       if (!closeHitRegion) return undefined;

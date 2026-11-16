@@ -32,7 +32,7 @@ function truncateText(value, width) {
 }
 
 function hasTimestampValue(value) {
-  return value !== null && value !== undefined && value !== "";
+  return typeof value === "string" && value.trim() !== "";
 }
 
 function formatTimestamp(value) {
@@ -259,9 +259,11 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     const openedAt = formatTimestamp(timeline.openedAt);
     const mergedAt = formatTimestamp(timeline.mergedAt);
     const hasMergedAt = hasTimestampValue(timeline.mergedAt);
-    const opened = openedAt ? `Opened ${openedAt}` : "Opened";
-    const merged = hasMergedAt ? ` · merged${mergedAt ? ` ${mergedAt}` : ""}` : " · not merged";
-    lines.push({ token: "muted", text: `${opened}${merged} · read-only` });
+    lines.push({ token: "muted", text: openedAt ? `Opened · ${openedAt}` : "Opened" });
+    lines.push({
+      token: "muted",
+      text: hasMergedAt ? `Merged${mergedAt ? ` · ${mergedAt}` : ""} · read-only` : "Not merged · read-only",
+    });
     // Render stays pure: the synthetic merge row is pushed onto a copy so
     // the session state object is never mutated during render.
     const events = [...(Array.isArray(timeline.events) ? timeline.events : [])];
@@ -278,7 +280,6 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
       for (const event of events) {
         const label = event.kind === "merged" ? mergeLabel : (TIMELINE_EVENT_LABELS[event.kind] || event.kind);
         const timestamp = formatTimestamp(event.at);
-        const suffix = timestamp ? ` · ${timestamp}` : "";
         const token = event.kind === "merged" ? "success"
           : event.kind === "review" && event.state === "CHANGES_REQUESTED" ? "error"
           : event.kind === "review" && event.state === "APPROVED" ? "success"
@@ -286,12 +287,13 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
           : "text";
         if (event.kind === "review") {
           const reviewState = REVIEW_STATE_LABELS[event.state] || event.state || label;
-          lines.push({ token, text: `${reviewState} · ${event.author || "unknown"}${suffix}` });
+          lines.push({ token, text: `${reviewState} · ${event.author || "unknown"}` });
         } else if (event.kind === "merged") {
-          lines.push({ token, text: `${label} · ${event.author || "unknown"}${suffix} · ${String(event.commit ?? "").slice(0, 7) || "commit"}` });
+          lines.push({ token, text: `${label} · ${event.author || "unknown"} · ${String(event.commit ?? "").slice(0, 7) || "commit"}` });
         } else {
-          lines.push({ token, text: `${label} · ${event.author || "unknown"}${suffix}` });
+          lines.push({ token, text: `${label} · ${event.author || "unknown"}` });
         }
+        if (timestamp) lines.push({ token: "muted", text: `  ${timestamp}` });
       }
     }
 
@@ -314,8 +316,8 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
         const icon = run.status === "in_progress" ? "◷" : run.conclusion === "success" ? "✓" : neutral ? "–" : run.status === "completed" ? "×" : "◷";
         const stateLabel = run.status === "in_progress" ? "Running" : run.conclusion || run.status;
         const timestamp = formatTimestamp(run.startedAt);
-        const time = timestamp ? ` · ${timestamp}` : "";
-        lines.push({ token, text: `${icon} ${run.name || "Workflow"} · ${stateLabel}${time}` });
+        lines.push({ token, text: `${icon} ${run.name || "Workflow"} · ${stateLabel}` });
+        if (timestamp) lines.push({ token: "muted", text: `  ${timestamp}` });
       }
     }
     return lines;

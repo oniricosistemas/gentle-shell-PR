@@ -293,7 +293,8 @@ test("the inspector renders loaded details before review context resolves", asyn
   await focusPromise;
   inspector.setTab("Context");
   const lines = inspector.render(96).join("\n");
-  assert.match(lines, /Fetched \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2} · read-only/);
+  const expectedTime = new Date("2026-11-12T22:00:00Z").toTimeString().slice(0, 5);
+  assert.match(lines, new RegExp(`Fetched \\d{4}-\\d{2}-\\d{2} ${expectedTime} UTC[+-]\\d{2}:\\d{2} · read-only`));
 });
 
 test("the Context tab distinguishes a pending context from an unavailable one", async () => {
@@ -396,7 +397,8 @@ test("the timeline is still collected when the context query fails", async () =>
   const lines = inspector.render(96).join("\n");
   assert.doesNotMatch(lines, /Timeline is unavailable/);
   const expectedTime = new Date("2026-11-12T13:26:00Z").toTimeString().slice(0, 5);
-  assert.match(lines, new RegExp(`Changes requested .* ${expectedTime}`));
+  assert.match(lines, /Changes requested · gentle-review/);
+  assert.match(lines, new RegExp(`\\d{4}-\\d{2}-\\d{2} ${expectedTime} UTC[+-]\\d{2}:\\d{2}`));
 });
 
 test("context and timeline fetches start concurrently with their own pending markers", async () => {

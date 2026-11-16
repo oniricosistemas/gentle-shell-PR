@@ -60,6 +60,24 @@ function plain(lines) {
   return lines.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
 }
 
+function renderInspectorInZone({ timezone, state, tab, width = 96 }) {
+  const inspectorModule = new URL("../src/inspector.js", import.meta.url).href;
+  const script = `
+    import { createPullRequestInspector } from ${JSON.stringify(inspectorModule)};
+    const inspector = createPullRequestInspector({
+      tui: { requestRender() {} },
+      theme: { fg(_token, text) { return text; }, bold(text) { return text; } },
+      initialState: ${JSON.stringify(state)},
+    });
+    inspector.setTab(${JSON.stringify(tab)});
+    process.stdout.write(inspector.render(${width}).join("\\n"));
+  `;
+  return execFileSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    env: { ...process.env, TZ: timezone },
+  });
+}
+
 test("the inspector renders a theme-aware Overview without a diff viewer", () => {
   const theme = createTheme();
   const inspector = createPullRequestInspector({
@@ -362,15 +380,19 @@ test("the inspector exposes a Timeline tab with lifecycle events and workflow ru
 
   inspector.setTab("Timeline");
   assert.equal(inspector.getActiveTab(), "Timeline");
-  const lines = inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  const lines = renderInspectorInZone({ timezone: "UTC", state, tab: "Timeline", width: 60 });
 
   assert.match(lines, /\[Timeline\]/);
-  assert.match(lines, /Opened \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
-  assert.match(lines, /Changes requested · gentle-review · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
-  assert.match(lines, /Approved · gentle-review · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
-  assert.match(lines, /Merged into main · lmsastre · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2} · e9b42af/);
+  assert.match(lines, /Opened · 2026-11-12 13:08 UTC\+00:00/);
+  assert.match(lines, /Merged · 2026-11-12 14:42 UTC\+00:00 · read-only/);
+  assert.match(lines, /Changes requested · gentle-review/);
+  assert.match(lines, /2026-11-12 13:26 UTC\+00:00/);
+  assert.match(lines, /Approved · gentle-review/);
+  assert.match(lines, /2026-11-12 14:38 UTC\+00:00/);
+  assert.match(lines, /Merged into main · lmsastre · e9b42af/);
   assert.match(lines, /GitHub Actions · 1 run/);
-  assert.match(lines, /◷ Deploy production · Running · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
+  assert.match(lines, /◷ Deploy production · Running/);
+  assert.match(lines, /2026-11-12 14:42 UTC\+00:00/);
 });
 
 test("inspector timestamps include the local date and UTC offset and hide invalid values", () => {
@@ -406,39 +428,25 @@ test("inspector timestamps include the local date and UTC offset and hide invali
 
   inspector.setTab("Timeline");
   const timeline = plain(inspector.render(96));
-  assert.match(timeline, /Opened \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
-  assert.match(timeline, /Approved · gentle-review · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
+  assert.match(timeline, /Opened · \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
+  assert.match(timeline, /Approved · gentle-review/);
+  assert.match(timeline, /\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}/);
   assert.match(timeline, /Closed · octocat/);
   assert.doesNotMatch(timeline, /Invalid|not-a-timestamp/);
 });
 
 test("timestamp output uses fixed expected values in whole-hour and fractional-offset zones", () => {
-  const inspectorModule = new URL("../src/inspector.js", import.meta.url).href;
-  const script = `
-    import { createPullRequestInspector } from ${JSON.stringify(inspectorModule)};
-    const state = {
-      loading: false,
-      pullRequest: {
-        number: 42,
-        title: "Timestamp test",
-        context: { fetchedAt: "2026-11-12T13:08:00Z", linkedIssues: [], reviewThreads: [] },
-      },
-    };
-    const inspector = createPullRequestInspector({
-      tui: { requestRender() {} },
-      theme: { fg(_token, text) { return text; }, bold(text) { return text; } },
-      initialState: state,
-    });
-    inspector.setTab("Context");
-    process.stdout.write(inspector.render(96).join("\\n"));
-  `;
-  const renderInZone = (timezone) => execFileSync(process.execPath, ["--input-type=module", "--eval", script], {
-    encoding: "utf8",
-    env: { ...process.env, TZ: timezone },
-  });
+  const state = {
+    loading: false,
+    pullRequest: {
+      number: 42,
+      title: "Timestamp test",
+      context: { fetchedAt: "2026-11-12T13:08:00Z", linkedIssues: [], reviewThreads: [] },
+    },
+  };
 
-  assert.match(renderInZone("America/Argentina/Buenos_Aires"), /Fetched 2026-11-12 10:08 UTC-03:00 · read-only/);
-  assert.match(renderInZone("Asia/Kathmandu"), /Fetched 2026-11-12 18:53 UTC\+05:45 · read-only/);
+  assert.match(renderInspectorInZone({ timezone: "America/Argentina/Buenos_Aires", state, tab: "Context" }), /Fetched 2026-11-12 10:08 UTC-03:00 · read-only/);
+  assert.match(renderInspectorInZone({ timezone: "Asia/Kathmandu", state, tab: "Context" }), /Fetched 2026-11-12 18:53 UTC\+05:45 · read-only/);
 });
 
 test("null timestamps stay absent and an invalid mergedAt preserves merged state", () => {
@@ -461,7 +469,8 @@ test("null timestamps stay absent and an invalid mergedAt preserves merged state
   assert.match(plain(absentInspector.render(96)), /Read-only context/);
   absentInspector.setTab("Timeline");
   const absentTimeline = plain(absentInspector.render(96));
-  assert.match(absentTimeline, /Opened · not merged · read-only/);
+  assert.match(absentTimeline, /Opened/);
+  assert.match(absentTimeline, /Not merged · read-only/);
   assert.match(absentTimeline, /Closed · octocat/);
   assert.match(absentTimeline, /✓ Deploy · success/);
   assert.doesNotMatch(absentTimeline, /1970|UTC\+00:00/);
@@ -476,9 +485,33 @@ test("null timestamps stay absent and an invalid mergedAt preserves merged state
   const invalidInspector = createPullRequestInspector({ tui: { requestRender() {} }, theme: createTheme(), initialState: invalidMerge });
   invalidInspector.setTab("Timeline");
   const invalidTimeline = plain(invalidInspector.render(96));
-  assert.match(invalidTimeline, /Opened · merged · read-only/);
+  assert.match(invalidTimeline, /Opened/);
+  assert.match(invalidTimeline, /Merged · read-only/);
   assert.match(invalidTimeline, /Merged into main · octocat · commit/);
   assert.doesNotMatch(invalidTimeline, /not merged|Invalid|not-a-timestamp/);
+
+  const nonString = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      context: { fetchedAt: false, linkedIssues: [], reviewThreads: [], failedCheck: undefined },
+      timeline: {
+        openedAt: 0,
+        mergedAt: false,
+        mergedBy: "",
+        events: [{ kind: "closed", at: 0, author: "octocat" }],
+        workflowRuns: [{ name: "Deploy", status: "completed", conclusion: "success", startedAt: false }],
+      },
+    },
+  };
+  const nonStringInspector = createPullRequestInspector({ tui: { requestRender() {} }, theme: createTheme(), initialState: nonString });
+  nonStringInspector.setTab("Context");
+  assert.match(plain(nonStringInspector.render(96)), /Read-only context/);
+  nonStringInspector.setTab("Timeline");
+  const nonStringTimeline = plain(nonStringInspector.render(96));
+  assert.match(nonStringTimeline, /Opened/);
+  assert.match(nonStringTimeline, /Not merged · read-only/);
+  assert.doesNotMatch(nonStringTimeline, /1970|Invalid/);
 });
 
 test("the Timeline tab degrades gracefully without timeline data", () => {

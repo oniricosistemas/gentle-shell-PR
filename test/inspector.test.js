@@ -186,18 +186,23 @@ test("clicking a tab selects it absolutely after another tab was active", () => 
     initialState: detail,
   });
 
-  const clickTab = (label) => {
+  const tabClick = (label) => {
     const lines = inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
     const y = lines.findIndex((line) => line.includes(label));
     const x = lines[y].indexOf(label);
-    return inspector.handleMouse({ type: "click", button: "left", x, y });
+    return { type: "click", button: "left", x, y };
   };
+  const timelineClick = tabClick("Timeline");
+  const filesClick = tabClick("Files");
 
-  assert.deepEqual(clickTab("Timeline"), { handled: true, render: true });
+  assert.deepEqual(inspector.handleMouse(timelineClick), { handled: true, render: true });
   assert.equal(inspector.getActiveTab(), "Timeline");
+  inspector.handleInput("j");
+  assert.equal(JSON.parse(inspector.digest()).scrollOffset, 1);
 
-  assert.deepEqual(clickTab("Files"), { handled: true, render: true });
+  assert.deepEqual(inspector.handleMouse(filesClick), { handled: true, render: true });
   assert.equal(inspector.getActiveTab(), "Files");
+  assert.equal(JSON.parse(inspector.digest()).scrollOffset, 0);
   assert.match(plain(inspector.render(96)), /src\/inspector\.js/);
 });
 

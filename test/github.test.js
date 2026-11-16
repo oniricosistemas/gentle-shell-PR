@@ -770,3 +770,24 @@ test("timeline collector requests the most recent window with last", async () =>
   assert.match(calls[0], /timelineItems\(last: 40,/);
   assert.doesNotMatch(calls[0], /timelineItems\(first:/);
 });
+
+test("inbox collector marks current case-insensitively on case-insensitive platforms", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    platform: "darwin",
+    execute: async (command, args, options) => {
+      if (command === "find") return { exitCode: 0, stdout: "/Workspace/Pr-Flow\n/workspace/other", stderr: "" };
+      if (command === "git" && args[0] === "remote") {
+        return options?.cwd === "/Workspace/Pr-Flow"
+          ? { exitCode: 0, stdout: "https://github.com/owner/pr-flow.git\n", stderr: "" }
+          : { exitCode: 0, stdout: "https://github.com/owner/other.git\n", stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  const current = result.repositories.find((entry) => entry.current);
+  // macOS compares paths case-insensitively: the discovered root is the
+  // current repository even when capitalization differs.
+  assert.equal(current?.repository, "owner/pr-flow");
+});

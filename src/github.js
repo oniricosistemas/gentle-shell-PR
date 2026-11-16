@@ -488,6 +488,15 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
   };
 }
 
+function samePath(left, right, platform = process.platform) {
+  const resolvedLeft = resolvePath(String(left ?? "."));
+  const resolvedRight = resolvePath(String(right ?? "."));
+  if (platform === "win32" || platform === "darwin") {
+    return resolvedLeft.toLowerCase() === resolvedRight.toLowerCase();
+  }
+  return resolvedLeft === resolvedRight;
+}
+
 const INBOX_REPOSITORY_LIMIT = 8;
 
 /**
@@ -497,7 +506,7 @@ const INBOX_REPOSITORY_LIMIT = 8;
  * is local-only; GitHub queries are the same bounded read-only list the
  * sidebar uses. Every failure degrades without breaking the caller.
  */
-export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5 }) {
+export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5, platform = process.platform }) {
   const repositories = [];
   try {
     // Sibling workspaces live next to the current repository, so discovery
@@ -523,7 +532,9 @@ export async function collectPullRequestInbox({ cwd, execute = executeFile, limi
             // Discovery reports absolute normalized roots while the caller
             // may pass a relative or trailing-slash cwd; compare resolved
             // paths so the current repository is still marked as current.
-            current: resolvePath(root) === resolvePath(String(cwd ?? ".")),
+            // macOS and Windows compare paths case-insensitively, so those
+            // platforms also ignore capitalization differences.
+            current: samePath(root, cwd ?? ".", platform),
           });
         }
       }

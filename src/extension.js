@@ -155,7 +155,7 @@ export function createPrSidebarExtension(dependencies = {}) {
         // The target number is captured once so a late result can never
         // attach context or timeline belonging to a different pull request.
         const targetNumber = session.state.pullRequest.number;
-        session.state = { ...session.state, contextPending: true, timelinePending: true };
+        session.state = { ...session.state, contextPending: true };
         session.component?.setState(session.state);
         try {
           const collected = await collectContext({
@@ -183,25 +183,32 @@ export function createPrSidebarExtension(dependencies = {}) {
         }
         // Timeline is fetched independently so a context failure cannot
         // take it down with it; it also degrades to an unavailable tab.
-        try {
-          const timeline = await collectTimeline({
-            cwd: context.cwd,
-            repository: current.state.repository,
-            number: targetNumber,
-          });
-          if (active === current && current.inspectorSession === session && !timeline.error && timeline.timeline
-            && session.state.pullRequest?.number === targetNumber) {
-            session.state = {
-              ...session.state,
-              pullRequest: { ...session.state.pullRequest, timeline: timeline.timeline },
-            };
-          }
-        } catch {
-          // Timeline stays unavailable.
-        } finally {
-          if (session.state.pullRequest?.number === targetNumber) {
-            session.state = { ...session.state, timelinePending: false };
-            if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+        // Its pending marker and its network call only start when the
+        // session is still the active target for this pull request, so a
+        // stopped or retargeted session spends no GitHub API calls.
+        if (active === current && current.inspectorSession === session && session.state.pullRequest?.number === targetNumber) {
+          session.state = { ...session.state, timelinePending: true };
+          session.component?.setState(session.state);
+          try {
+            const timeline = await collectTimeline({
+              cwd: context.cwd,
+              repository: current.state.repository,
+              number: targetNumber,
+            });
+            if (active === current && current.inspectorSession === session && !timeline.error && timeline.timeline
+              && session.state.pullRequest?.number === targetNumber) {
+              session.state = {
+                ...session.state,
+                pullRequest: { ...session.state.pullRequest, timeline: timeline.timeline },
+              };
+            }
+          } catch {
+            // Timeline stays unavailable.
+          } finally {
+            if (session.state.pullRequest?.number === targetNumber) {
+              session.state = { ...session.state, timelinePending: false };
+              if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+            }
           }
         }
       }

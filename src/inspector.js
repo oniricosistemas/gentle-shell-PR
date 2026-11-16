@@ -31,7 +31,12 @@ function truncateText(value, width) {
   return `${text.replace(ANSI_PATTERN, "").slice(0, width - 1)}…`;
 }
 
+function hasTimestampValue(value) {
+  return value !== null && value !== undefined && value !== "";
+}
+
 function formatTimestamp(value) {
+  if (!hasTimestampValue(value)) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
@@ -253,15 +258,16 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     const lines = [];
     const openedAt = formatTimestamp(timeline.openedAt);
     const mergedAt = formatTimestamp(timeline.mergedAt);
+    const hasMergedAt = hasTimestampValue(timeline.mergedAt);
     const opened = openedAt ? `Opened ${openedAt}` : "Opened";
-    const merged = mergedAt ? ` · merged ${mergedAt}` : " · not merged";
+    const merged = hasMergedAt ? ` · merged${mergedAt ? ` ${mergedAt}` : ""}` : " · not merged";
     lines.push({ token: "muted", text: `${opened}${merged} · read-only` });
     // Render stays pure: the synthetic merge row is pushed onto a copy so
     // the session state object is never mutated during render.
     const events = [...(Array.isArray(timeline.events) ? timeline.events : [])];
     // A merged pull request always shows its merge row, even when the bounded
     // event list is empty: mergedAt/mergedBy are authoritative on their own.
-    if (timeline.mergedAt && !events.some((event) => event.kind === "merged")) {
+    if (hasMergedAt && !events.some((event) => event.kind === "merged")) {
       events.push({ kind: "merged", at: timeline.mergedAt, author: timeline.mergedBy, commit: undefined });
     }
     // The merge target is the pull request's own base branch, not always main.

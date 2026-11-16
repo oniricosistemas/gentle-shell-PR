@@ -301,11 +301,10 @@ export function createPrSidebarExtension(dependencies = {}) {
           context.ui.notify("Pull request inbox requires interactive TUI mode", "warning");
           return;
         }
+        // Collection degrades to empty lists and per-repository error
+        // entries instead of a top-level error, so the panel always opens
+        // and shows its own empty/offline states.
         const inbox = await collectInbox({ cwd: context.cwd });
-        if (inbox.error) {
-          context.ui.notify(inbox.error, "warning");
-          return;
-        }
         try {
           await context.ui.custom((tui, theme, keybindings, done) => {
             const panel = createCommandCenterPanel({ tui, theme, initialState: inbox });

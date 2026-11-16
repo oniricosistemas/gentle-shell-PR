@@ -576,7 +576,7 @@ export async function collectPullRequestInbox({ cwd, execute = executeFile, limi
   const repositories = [];
   try {
     // Sibling workspaces live next to the enclosing repository root.
-    const roots = (await discoverGitRoots({ cwd, fsImpl })).slice(0, INBOX_REPOSITORY_LIMIT * 2);
+    const roots = await discoverGitRoots({ cwd, fsImpl });
     for (const root of roots) {
       const remoteResult = await execute("git", ["remote", "get-url", "origin"], { cwd: root, timeoutMs: 10_000 });
       const repository = remoteResult.exitCode === 0 ? parseGitHubRemote(remoteResult.stdout) : undefined;
@@ -593,6 +593,10 @@ export async function collectPullRequestInbox({ cwd, execute = executeFile, limi
         });
       }
     }
+    // The current repository always survives the bounded discovery and inbox
+    // windows: a workspace with more repositories than the limit must never
+    // drop the repository the session runs in.
+    repositories.sort((left, right) => Number(right.current) - Number(left.current));
   } catch {
     // Offline workspace discovery degrades to an empty inbox, not an error.
   }

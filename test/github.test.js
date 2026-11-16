@@ -922,3 +922,28 @@ test("inbox discovery finds sibling repositories from a repository subdirectory"
   ]);
   assert.equal(result.repositories.find((entry) => entry.current)?.repository, "owner/pr-flow");
 });
+
+test("inbox discovery prioritizes the current repository over the repository limit", async () => {
+  // 10 sibling repositories with names sorting after the current one.
+  const tree = {
+    "/workspace": [...Array.from({ length: 10 }, (_, i) => [`repo-${String(i).padStart(2, "0")}`, true]), ["pr-flow", true]],
+    "/workspace/pr-flow": [[".git", true]],
+    ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`/workspace/repo-${String(i).padStart(2, "0")}`, [[".git", true]]])),
+  };
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    fsImpl: makeFs(tree),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  // With 11 discovered roots the bounded inbox would drop the alphabetically
+  // last repository; the current repository must always be included.
+  const current = result.inbox.find((entry) => entry.cwd === "/workspace/pr-flow");
+  assert.ok(current, "the current repository must survive the repository limit");
+  assert.equal(result.inbox.length, 8);
+});

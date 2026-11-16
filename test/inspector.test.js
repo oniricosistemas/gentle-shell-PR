@@ -517,3 +517,25 @@ test("completed runs with neutral conclusions are not shown as failures", () => 
   assert.match(lines, /– Nightly · skipped/);
   assert.match(lines, /– Cancel bot · cancelled/);
 });
+
+test("tab click regions never extend past the visible tabs text", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+  });
+
+  // A narrow modal truncates the tabs row; regions on truncated or blank
+  // space would activate tabs the user cannot see.
+  const plainTabs = inspector.render(30).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""))[1];
+  const visibleTabs = plainTabs.replace("│ ", "").replace(" │", "");
+  // No tab whose label is invisible may be clickable.
+  for (const tab of ["Overview", "Checks", "Files", "Context", "Timeline"].filter((tab) => !visibleTabs.includes(tab))) {
+    for (let x = 0; x < 40; x += 1) {
+      const result = inspector.handleMouse({ type: "click", button: "left", x, y: 1, width: 30, height: 20 });
+      if (result?.handled && inspector.getActiveTab() === tab) {
+        assert.fail(`invisible tab ${tab} is clickable at column ${x}`);
+      }
+    }
+  }
+});

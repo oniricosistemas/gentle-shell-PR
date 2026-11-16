@@ -327,21 +327,30 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     const bottom = border(`╰${"─".repeat(Math.max(0, boundedWidth - 2))}╯`);
     const lines = [top];
 
-    // Tab titles are clickable: record each label's terminal column range on
-    // the fixed tabs row (line 1, after the "│ " gutter) for mouse routing.
+    // Tab titles are clickable: compute the label ranges first, then trim
+    // them to the text that actually fits the rendered tabs row, so a narrow
+    // modal never leaves clickable regions over truncated or blank space.
+    const tabSegments = TABS.map((tab, index) => index === activeTabIndex ? `[${tab}]` : ` ${tab} `);
+    const fullTabsText = tabSegments.join("  ");
+    const tabsBounded = visibleWidth(fullTabsText) <= innerWidth ? fullTabsText : truncateText(fullTabsText, innerWidth);
     let tabOffset = 0;
-    tabHitRegions = TABS.map((tab, index) => {
-      const label = index === activeTabIndex ? `[${tab}]` : ` ${tab} `;
-      const region = {
+    tabHitRegions = [];
+    for (const [index, segment] of tabSegments.entries()) {
+      const labelStart = tabOffset;
+      const labelEnd = tabOffset + segment.length;
+      tabOffset = labelEnd + 2;
+      // Only labels that survive the visible text entirely are clickable:
+      // a truncated partial label (or one cut by the ellipsis) would offer
+      // a region whose label the user cannot read.
+      if (labelEnd > tabsBounded.length) continue;
+      tabHitRegions.push({
         index,
-        startX: tabOffset + 2,
-        endX: Math.min(tabOffset + 2 + label.length, innerWidth + 2),
-      };
-      tabOffset += label.length + 2;
-      return region;
-    });
-    const tabsText = TABS.map((tab, index) => index === activeTabIndex ? `[${tab}]` : ` ${tab} `).join("  ");
-    lines.push(row("accent", tabsText));
+        // The row renders after the "│ " gutter, two columns in.
+        startX: labelStart + 2,
+        endX: labelEnd + 2,
+      });
+    }
+    lines.push(row("accent", tabsBounded));
     lines.push(row("border", "─".repeat(innerWidth)));
 
     if (state.loading) {

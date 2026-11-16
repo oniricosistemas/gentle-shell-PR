@@ -31,6 +31,23 @@ function truncateText(value, width) {
   return `${text.replace(ANSI_PATTERN, "").slice(0, width - 1)}…`;
 }
 
+function hasTimestampValue(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function formatTimestamp(value) {
+  if (!hasTimestampValue(value)) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const pad = (part) => String(part).padStart(2, "0");
+  const offsetMinutes = -date.getTimezoneOffset();
+  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const offset = `${offsetSign}${pad(Math.floor(absoluteOffset / 60))}:${pad(absoluteOffset % 60)}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} UTC${offset}`;
+}
+
 function wrapText(value, width) {
   const text = cleanExternalText(value);
   if (!text) return [];
@@ -171,9 +188,8 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     }
 
     const lines = [];
-    const fetched = context.fetchedAt
-      ? `Fetched ${new Date(context.fetchedAt).toTimeString().slice(0, 5)} · read-only`
-      : "Read-only context";
+    const fetchedAt = formatTimestamp(context.fetchedAt);
+    const fetched = fetchedAt ? `Fetched ${fetchedAt} · read-only` : "Read-only context";
     lines.push({ token: "muted", text: fetched });
     const issues = Array.isArray(context.linkedIssues) ? context.linkedIssues : [];
     lines.push({ token: "text", text: `Linked issue${issues.length === 1 ? "" : "s"}${issues.length ? ` · ${issues.length} reference${issues.length === 1 ? "" : "s"}` : ""}`, bold: true });
@@ -240,15 +256,20 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     }
 
     const lines = [];
-    const opened = timeline.openedAt ? `Opened ${new Date(timeline.openedAt).toTimeString().slice(0, 5)}` : "Opened";
-    const merged = timeline.mergedAt ? ` · merged ${new Date(timeline.mergedAt).toTimeString().slice(0, 5)}` : " · not merged";
-    lines.push({ token: "muted", text: `${opened}${merged} · read-only` });
+    const openedAt = formatTimestamp(timeline.openedAt);
+    const mergedAt = formatTimestamp(timeline.mergedAt);
+    const hasMergedAt = hasTimestampValue(timeline.mergedAt);
+    lines.push({ token: "muted", text: openedAt ? `Opened · ${openedAt}` : "Opened" });
+    lines.push({
+      token: "muted",
+      text: hasMergedAt ? `Merged${mergedAt ? ` · ${mergedAt}` : ""} · read-only` : "Not merged · read-only",
+    });
     // Render stays pure: the synthetic merge row is pushed onto a copy so
     // the session state object is never mutated during render.
     const events = [...(Array.isArray(timeline.events) ? timeline.events : [])];
     // A merged pull request always shows its merge row, even when the bounded
     // event list is empty: mergedAt/mergedBy are authoritative on their own.
-    if (timeline.mergedAt && !events.some((event) => event.kind === "merged")) {
+    if (hasMergedAt && !events.some((event) => event.kind === "merged")) {
       events.push({ kind: "merged", at: timeline.mergedAt, author: timeline.mergedBy, commit: undefined });
     }
     // The merge target is the pull request's own base branch, not always main.
@@ -258,8 +279,7 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     } else {
       for (const event of events) {
         const label = event.kind === "merged" ? mergeLabel : (TIMELINE_EVENT_LABELS[event.kind] || event.kind);
-        const time = event.at ? new Date(event.at).toTimeString().slice(0, 5) : "";
-        const suffix = time ? ` · ${time}` : "";
+        const timestamp = formatTimestamp(event.at);
         const token = event.kind === "merged" ? "success"
           : event.kind === "review" && event.state === "CHANGES_REQUESTED" ? "error"
           : event.kind === "review" && event.state === "APPROVED" ? "success"
@@ -267,12 +287,13 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
           : "text";
         if (event.kind === "review") {
           const reviewState = REVIEW_STATE_LABELS[event.state] || event.state || label;
-          lines.push({ token, text: `${reviewState} · ${event.author || "unknown"}${suffix}` });
+          lines.push({ token, text: `${reviewState} · ${event.author || "unknown"}` });
         } else if (event.kind === "merged") {
-          lines.push({ token, text: `${label} · ${event.author || "unknown"}${suffix} · ${String(event.commit ?? "").slice(0, 7) || "commit"}` });
+          lines.push({ token, text: `${label} · ${event.author || "unknown"} · ${String(event.commit ?? "").slice(0, 7) || "commit"}` });
         } else {
-          lines.push({ token, text: `${label} · ${event.author || "unknown"}${suffix}` });
+          lines.push({ token, text: `${label} · ${event.author || "unknown"}` });
         }
+        if (timestamp) lines.push({ token: "muted", text: `  ${timestamp}` });
       }
     }
 
@@ -294,8 +315,9 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
           : "warning";
         const icon = run.status === "in_progress" ? "◷" : run.conclusion === "success" ? "✓" : neutral ? "–" : run.status === "completed" ? "×" : "◷";
         const stateLabel = run.status === "in_progress" ? "Running" : run.conclusion || run.status;
-        const time = run.startedAt ? ` · ${new Date(run.startedAt).toTimeString().slice(0, 5)}` : "";
-        lines.push({ token, text: `${icon} ${run.name || "Workflow"} · ${stateLabel}${time}` });
+        const timestamp = formatTimestamp(run.startedAt);
+        lines.push({ token, text: `${icon} ${run.name || "Workflow"} · ${stateLabel}` });
+        if (timestamp) lines.push({ token: "muted", text: `  ${timestamp}` });
       }
     }
     return lines;

@@ -1,4 +1,4 @@
-import { cleanExternalText } from "./github.js";
+import { cleanExternalText, filterPullRequestInbox } from "./github.js";
 
 export const GENTLE_SHELL_SIDEBAR_STATE = Symbol.for("gentle-pi.experimental-sidebar.state");
 const SHARED_RAIL_STACK = Symbol.for("mcp-sidebar.gentle-shell-rail-stack");
@@ -53,6 +53,116 @@ function mergeLabel(merge) {
   return "Merge unknown";
 }
 
+const ATTENTION_LABELS = { review_requested: "review requested", failed_ci: "failed CI" };
+
+/**
+ * v0.5 Command Center: a read-only cross-repository inbox panel. Filters are
+ * pure local views and never change repository state.
+ */
+export function createCommandCenterPanel({ tui, theme, initialState }) {
+  let inbox = initialState?.inbox ?? [];
+  const owners = () => ["All owners", ...new Set(inbox.flatMap((entry) => (entry.pullRequests ?? []).map((pr) => pr.author)).filter((author) => author && author !== "unknown"))];
+  let ownerIndex = 0;
+  let attentionIndex = 0;
+  const attentionValues = ["All", "review_requested", "failed_ci"];
+
+  const paint = (token, text, bold = false) => {
+    const emphasized = bold && typeof theme.bold === "function" ? theme.bold(text) : text;
+    return theme.fg(token, emphasized);
+  };
+
+  const render = (width) => {
+    const boundedWidth = Math.max(24, Math.floor(width));
+    const row = (text, token = "text", bold = false) => paint(token, truncateText(text, boundedWidth), bold);
+    const ownerLabel = owners()[ownerIndex] ?? "All owners";
+    const attentionLabel = attentionIndex === 0 ? "All" : ATTENTION_LABELS[attentionValues[attentionIndex]];
+
+    const lines = [
+      row(`Command center · ${inbox.length} repositories`, "accent", true),
+      row(`Filter: ${ownerLabel} · ${attentionLabel}`, "muted"),
+      row("", "muted"),
+    ];
+
+    const attention = attentionValues[attentionIndex] === "All" ? undefined : attentionValues[attentionIndex];
+    const owner = ownerLabel === "All owners" ? undefined : ownerLabel;
+    const filtered = filterPullRequestInbox(inbox, { owner, attention });
+    let total = 0;
+    // Attention summary across the unfiltered inbox, like the artboard's
+    // inbox header ("Review requested · N", "Failed CI · N").
+    const allPullRequests = inbox.flatMap((entry) => entry.pullRequests ?? []);
+    const reviewRequested = allPullRequests.filter((pr) => pr.review === "waiting").length;
+    const failedCi = allPullRequests.filter((pr) => pr.checks?.failed > 0).length;
+    if (reviewRequested > 0) lines.push(row(`◇ Review requested · ${reviewRequested}`, "warning"));
+    if (failedCi > 0) lines.push(row(`× Failed CI · ${failedCi}`, "error"));
+
+    // The checks icon carries its own semantic color as a separate segment:
+    // painting it inside the review-colored row would nest resets and make
+    // the truncation count ANSI bytes. A pull request without checks data
+    // renders as unknown, never as a green successful build.
+    const checksIcon = (pr) => pr.checks?.failed > 0
+      ? paint("error", "×")
+      : pr.checks?.pending > 0 ? paint("warning", "◷")
+      : pr.checks?.total > 0 ? paint("success", "✓")
+      : paint("muted", "–");
+
+    for (const entry of filtered) {
+      if (entry.error) {
+        lines.push(row(`${entry.repository} · could not load pull requests`, "error"));
+        continue;
+      }
+      const marker = entry.current ? " · current" : "";
+      if (!entry.pullRequests?.length) continue;
+      lines.push(row(`${entry.repository}${marker}`, "text", true));
+      for (const pr of entry.pullRequests) {
+        total += 1;
+        const reviewToken = pr.review === "changes_requested" ? "error"
+          : pr.review === "approved" ? "success"
+          : pr.review === "waiting" ? "warning" : "muted";
+        const title = truncateText(`#${pr.number} ${pr.title}`, boundedWidth - 4);
+        lines.push(`  ${checksIcon(pr)}${paint(reviewToken, ` ${title}`)}`);
+        lines.push(row(`    @${pr.author} · ${pr.headBranch}`, "muted"));
+      }
+    }
+
+    if (total === 0) {
+      lines.push(row("No pull requests match the current filters", "muted"));
+    }
+    lines.push(row("", "muted"));
+    lines.push(row("f owner · a attention: failed CI, review requested", "muted"));
+    return lines;
+  };
+
+  return {
+    render,
+    invalidate: () => tui.requestRender(),
+    digest: () => JSON.stringify({ inbox, ownerIndex, attentionIndex }),
+    setState(next) {
+      // The selected owner follows identity, not position: re-find the author
+      // by name after the inbox changes; fall back to All owners when the
+      // author disappeared.
+      const selectedOwner = ownerIndex > 0 ? owners()[ownerIndex] : undefined;
+      inbox = next?.inbox ?? inbox;
+      const nextIndex = selectedOwner ? owners().indexOf(selectedOwner) : 0;
+      ownerIndex = nextIndex >= 0 ? nextIndex : 0;
+      tui.requestRender();
+    },
+    getInbox: () => inbox,
+    cycleOwner() {
+      ownerIndex = (ownerIndex + 1) % Math.max(1, owners().length);
+      tui.requestRender();
+    },
+    cycleAttention() {
+      attentionIndex = (attentionIndex + 1) % attentionValues.length;
+      tui.requestRender();
+    },
+    resetFilters() {
+      ownerIndex = 0;
+      attentionIndex = 0;
+      tui.requestRender();
+    },
+  };
+}
+
 export function detectGentleShellRailLayout(tui) {
   const host = tui?.terminal?.[GENTLE_SHELL_SIDEBAR_STATE];
   if (!host || !(host.parts instanceof Map)) return "legacy";
@@ -68,7 +178,7 @@ function factsToken(pr) {
 export function createPullRequestPanel({ tui, theme, initialState, onCollapsedChange, onOpenPullRequest, layout }) {
   let state = initialState;
   const railMode = (layout ?? detectGentleShellRailLayout(tui)) === "rail";
-  let collapsed = railMode;
+  let collapsed = false;
   let pullRequestTitleRows = new Map();
 
   onCollapsedChange?.(collapsed);

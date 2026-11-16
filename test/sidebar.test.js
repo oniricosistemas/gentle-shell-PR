@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   GENTLE_SHELL_SIDEBAR_STATE,
   attachGentleShellRailPanel,
+  createCommandCenterPanel,
   createPullRequestPanel,
   detectGentleShellRailLayout,
 } from "../src/sidebar.js";
@@ -240,18 +241,18 @@ test("legacy layout renders the bordered card expanded by default", () => {
   assert.equal(lines.every((line) => line.replace(/\u001b\[[0-9;]*m/g, "").length <= 42), true);
 });
 
-test("rail layout renders a borderless collapsed row by default", () => {
+test("rail layout renders a borderless expanded section by default", () => {
   const panel = createPullRequestPanel({
     tui: { requestRender() {} },
     theme: createTheme(),
     initialState: loadedState,
     layout: "rail",
   });
-  assert.equal(panel.isCollapsed(), true);
+  assert.equal(panel.isCollapsed(), false);
   const lines = panel.render(42);
   const plain = lines.map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
-  assert.match(plain, /▸ Pull requests · 1/);
-  assert.doesNotMatch(plain, /#42/);
+  assert.match(plain, /▾ Pull requests · 1/);
+  assert.match(plain, /#42 Add PR sidebar/);
   assert.doesNotMatch(plain, /[╭╯│]/);
   assert.equal(lines.every((line) => line.replace(/\u001b\[[0-9;]*m/g, "").length <= 42), true);
 });
@@ -263,8 +264,13 @@ test("rail layout expands and collapses by clicking the header", () => {
     initialState: loadedState,
     layout: "rail",
   });
-  assert.equal(panel.isCollapsed(), true);
+  assert.equal(panel.isCollapsed(), false);
   panel.render(42);
+  assert.deepEqual(panel.handleMouse({ type: "click", button: "left", x: 0, y: 0 }), { handled: true, render: true });
+  assert.equal(panel.isCollapsed(), true);
+  const collapsed = panel.render(42).join("\n");
+  assert.match(collapsed, /▸ Pull requests · 1/);
+  assert.doesNotMatch(collapsed, /#42/);
   assert.deepEqual(panel.handleMouse({ type: "click", button: "left", x: 0, y: 0 }), { handled: true, render: true });
   assert.equal(panel.isCollapsed(), false);
   const lines = panel.render(42);
@@ -283,8 +289,6 @@ test("rail layout opens a pull request when its title row is clicked", () => {
     layout: "rail",
     onOpenPullRequest: (pullRequest) => opened.push(pullRequest),
   });
-  panel.render(42);
-  panel.handleMouse({ type: "click", button: "left", x: 0, y: 0 });
   panel.render(42);
   assert.deepEqual(panel.handleMouse({ type: "click", button: "left", x: 0, y: 2 }), { handled: true, render: false });
   assert.equal(opened[0], loadedState.pullRequests[0]);
@@ -334,7 +338,7 @@ test("the shared rail wrapper forwards optional native footer properties", () =>
   assert.equal("summary" in legacyWrapper, false);
 });
 
-test("createPullRequestPanel reports its initial collapsed state", () => {
+test("createPullRequestPanel reports its initial expanded state", () => {
   const legacyChanges = [];
   const railChanges = [];
   createPullRequestPanel({
@@ -353,7 +357,7 @@ test("createPullRequestPanel reports its initial collapsed state", () => {
     layout: "rail",
     onCollapsedChange: (collapsed) => railChanges.push(collapsed),
   });
-  assert.deepEqual(railChanges, [true]);
+  assert.deepEqual(railChanges, [false]);
 });
 
 test("the shared rail wrapper composes card groups and offsets grouped participants", () => {
@@ -511,19 +515,15 @@ test("the grouped panel section keeps its spacer outside the card group and shif
   const lines = grouped.render(42);
   assert.equal(lines[0], "");
   const plain = lines.slice(1).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
-  // Rail layout mounts collapsed by default: the header shows the collapsed marker.
-  assert.match(plain[0], /▸ Pull requests · 1/);
+  // Rail layout mounts expanded by default with the pull-request rows visible.
+  assert.match(plain[0], /▾ Pull requests · 1/);
+  assert.match(plain[2], /#42 Add PR sidebar/);
 
   assert.deepEqual(grouped.cardGroups?.(42), { groups: [{ start: 1, end: lines.length }] });
 
-  // Clicking the header row (grouped y 1) toggles collapse; the spacer is inert.
+  // The spacer is inert and the expanded PR title keeps its grouped mouse offset.
   assert.equal(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 0 }), undefined);
-  assert.deepEqual(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 1 }), { handled: true, render: true });
-  assert.equal(panel.isCollapsed(), false);
-
-  const expanded = grouped.render(42);
-  assert.match(expanded[1].replace(/\u001b\[[0-9;]*m/g, ""), /▾ Pull requests · 1/);
-  assert.deepEqual(grouped.cardGroups?.(42), { groups: [{ start: 1, end: expanded.length }] });
+  assert.deepEqual(grouped.cardGroups?.(42), { groups: [{ start: 1, end: lines.length }] });
   assert.deepEqual(grouped.handleMouse({ type: "click", button: "left", x: 0, y: 3 }), { handled: true, render: false });
   assert.equal(opened[0], loadedState.pullRequests[0]);
 });
@@ -554,4 +554,207 @@ test("the shared rail wrapper degrades digest failures and ignores out-of-bounds
 
   handle.dispose();
   assert.equal(terminal[GENTLE_SHELL_SIDEBAR_STATE].parts.get("footer"), original);
+});
+
+test("the command center panel renders the aggregated inbox with filters and empty states", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "oniricosistemas/gentle-shell-PR", cwd: "/w/pr-flow", current: true, error: undefined, pullRequests: [
+          { number: 58, title: "Add cross-repo inbox filters", author: "lmsastre", headBranch: "a", review: "waiting", merge: "blocked", checks: { passed: 2, failed: 0, pending: 0, total: 2 } },
+        ] },
+        { repository: "owner/engram", cwd: "/w/engram", error: undefined, pullRequests: [
+          { number: 128, title: "Deduplicate memory observations", author: "octo", headBranch: "d", review: "approved", merge: "ready", checks: { passed: 0, failed: 1, pending: 0, total: 1 } },
+        ] },
+        { repository: "owner/offline", cwd: "/w/offline", error: "Could not load pull requests", pullRequests: [] },
+      ],
+    },
+  });
+
+  const lines = panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  assert.match(lines, /Command center · 3 repositories/);
+  assert.match(lines, /Review requested · 1/);
+  assert.match(lines, /Failed CI · 1/);
+  assert.match(lines, /oniricosistemas\/gentle-shell-PR · current/);
+  assert.match(lines, /#58 Add cross-repo inbox filters/);
+  assert.match(lines, /owner\/engram/);
+  assert.match(lines, /#128 Deduplicate memory observations/);
+  assert.match(lines, /owner\/offline · could not load pull requests/);
+  assert.match(lines, /owner/);
+  assert.match(lines, /failed CI/);
+  assert.match(lines, /All owners/);
+});
+
+test("the command center panel cycles filters locally without touching state", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 1, title: "A", author: "lmsastre", headBranch: "x", review: "waiting", merge: "blocked", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+
+  // Owner cycle: All owners -> lmsastre -> All owners (fixture has one author).
+  const plain = () => panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  panel.cycleOwner();
+  assert.match(plain(), /Filter: lmsastre/);
+  assert.match(plain(), /#1 A/);
+  panel.cycleOwner();
+  assert.match(plain(), /Filter: All owners/);
+
+  // Attention cycle: All -> review requested -> failed CI -> All. The fixture's
+  // pull request is waiting for review, so failed CI excludes it.
+  panel.cycleAttention();
+  assert.match(plain(), /#1 A/);
+  panel.cycleAttention();
+  assert.match(plain(), /No pull requests match the current filters/);
+
+  // Filter changes never mutate the source inbox.
+  assert.deepEqual(panel.getInbox()[0].pullRequests.length, 1);
+});
+
+test("pull requests without checks data render a neutral mark, not success", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/nodata", cwd: "/w/nodata", error: undefined, pullRequests: [
+          { number: 9, title: "No CI data yet", author: "octo", headBranch: "n", review: "waiting", merge: "blocked", checks: undefined },
+        ] },
+        { repository: "owner/passing", cwd: "/w/passing", error: undefined, pullRequests: [
+          { number: 10, title: "Green build", author: "octo", headBranch: "g", review: "approved", merge: "ready", checks: { passed: 2, failed: 0, pending: 0, total: 2 } },
+        ] },
+      ],
+    },
+  });
+
+  const lines = panel.render(64).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+  // Missing checks data must not read as a green successful build.
+  assert.match(lines.join("\n"), /– #9 No CI data yet/);
+  assert.doesNotMatch(lines.join("\n"), /✓ #9/);
+  assert.match(lines.join("\n"), /✓ #10 Green build/);
+});
+
+test("pull request rows paint the checks icon and title as separate segments", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 11, title: "Segmented colors", author: "octo", headBranch: "s", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+
+  const raw = panel.render(64).find((line) => line.includes("#11"));
+  // The icon segment closes its own color before the title segment starts;
+  // an outer wrap around pre-painted text would nest resets mid-line.
+  assert.match(raw, /^  \u001b\[\d+m[✓×◷–]\u001b\[0m\u001b\[\d+m #\d+/);
+});
+
+test("setState keeps the owner filter on an author who survives the inbox change", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 1, title: "A", author: "lmsastre", headBranch: "x", review: "waiting", merge: "blocked", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+          { number: 2, title: "B", author: "octo", headBranch: "y", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+
+  panel.cycleOwner(); // -> lmsastre
+  panel.cycleOwner(); // -> octo
+  assert.match(panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n"), /Filter: octo/);
+
+  panel.setState({ inbox: [
+    { repository: "owner/b", cwd: "/w/b", error: undefined, pullRequests: [
+      { number: 3, title: "C", author: "octo", headBranch: "z", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+    ] },
+  ] });
+  const lines = panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  // The filter follows the author by identity: octo still exists in the
+  // shrunken inbox, so the selection survives instead of falling back.
+  assert.doesNotMatch(lines, /Filter: undefined/);
+  assert.match(lines, /Filter: octo/);
+  assert.match(lines, /#3 C/);
+});
+
+test("setState keeps the selected owner by identity, not position", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 1, title: "A", author: "lmsastre", headBranch: "x", review: "waiting", merge: "blocked", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+          { number: 2, title: "B", author: "octo", headBranch: "y", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+  const plain = () => panel.render(48).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  panel.cycleOwner(); // -> lmsastre
+  panel.cycleOwner(); // -> octo
+  assert.match(plain(), /Filter: octo/);
+
+  // octo moves to a different position: the filter follows the author.
+  panel.setState({ inbox: [
+    { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+      { number: 4, title: "D", author: "octo", headBranch: "w", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+    ] },
+  ] });
+  assert.match(plain(), /Filter: octo/);
+  assert.match(plain(), /#4 D/);
+
+  // octo disappears entirely: the filter falls back to All owners.
+  panel.setState({ inbox: [
+    { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+      { number: 5, title: "E", author: "newauthor", headBranch: "z", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+    ] },
+  ] });
+  assert.match(plain(), /Filter: All owners/);
+});
+
+test("missing pull request authors are not selectable as owners", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 1, title: "Real author", author: "lmsastre", headBranch: "x", review: "waiting", merge: "blocked", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+          { number: 2, title: "No author data", author: "unknown", headBranch: "y", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+
+  const plain = () => panel.render(64).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  // The first owner cycle lands on the real author, skipping the fictitious
+  // "unknown" identity that missing author data used to create.
+  panel.cycleOwner();
+  assert.match(plain(), /Filter: lmsastre/);
+  // The ownerless pull request only exists under the fictitious identity,
+  // so a real-owner filter excludes it instead of mixing identities.
+  assert.doesNotMatch(plain(), /#2 No author data/);
 });

@@ -331,3 +331,211 @@ test("key 4 selects the Context tab and Enter toggles the failed-check excerpt",
   assert.doesNotMatch(collapsedAgain, /log line 6/);
   assert.ok(renders.length >= 3);
 });
+
+test("the inspector exposes a Timeline tab with lifecycle events and workflow runs", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt: "2026-11-12T13:08:00Z",
+        mergedAt: "2026-11-12T14:42:00Z",
+        mergedBy: "lmsastre",
+        events: [
+          { kind: "review", state: "CHANGES_REQUESTED", at: "2026-11-12T13:26:00Z", author: "gentle-review" },
+          { kind: "review", state: "APPROVED", at: "2026-11-12T14:38:00Z", author: "gentle-review" },
+          { kind: "merged", at: "2026-11-12T14:42:00Z", author: "lmsastre", commit: "e9b42af111111111111111111111111111111111" },
+        ],
+        workflowRuns: [
+          { name: "Deploy production", status: "in_progress", conclusion: undefined, startedAt: "2026-11-12T14:42:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+        ],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+
+  inspector.setTab("Timeline");
+  assert.equal(inspector.getActiveTab(), "Timeline");
+  const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+
+  assert.match(lines, /\[Timeline\]/);
+  const expectedOpened = new Date("2026-11-12T13:08:00Z").toTimeString().slice(0, 5);
+  const expectedReview = new Date("2026-11-12T13:26:00Z").toTimeString().slice(0, 5);
+  assert.match(lines, new RegExp(`Opened ${expectedOpened}`));
+  assert.match(lines, new RegExp(`Changes requested · gentle-review · ${expectedReview}`));
+  const expectedApproved = new Date("2026-11-12T14:38:00Z").toTimeString().slice(0, 5);
+  const expectedMerged = new Date("2026-11-12T14:42:00Z").toTimeString().slice(0, 5);
+  assert.match(lines, new RegExp(`Approved · gentle-review · ${expectedApproved}`));
+  assert.match(lines, /Merged into main · lmsastre · \d\d:\d\d · e9b42af/);
+  assert.match(lines, /GitHub Actions · 1 run/);
+  assert.match(lines, new RegExp(`◷ Deploy production · Running · ${expectedMerged}`));
+});
+
+test("the Timeline tab degrades gracefully without timeline data", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+  });
+  inspector.setTab("Timeline");
+  assert.match(inspector.render(60).join("\n"), /Timeline is unavailable/);
+
+  const empty = {
+    ...detail,
+    pullRequest: { ...detail.pullRequest, timeline: { fetchedAt: "2026-11-12T15:08:00Z", openedAt: "2026-11-12T13:08:00Z", mergedAt: undefined, mergedBy: "", events: [], workflowRuns: [] } },
+  };
+  const emptyInspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: empty,
+  });
+  emptyInspector.setTab("Timeline");
+  const lines = emptyInspector.render(60).join("\n");
+  assert.match(lines, /No timeline events yet/);
+  assert.match(lines, /No workflow runs/);
+});
+
+test("key 5 selects the Timeline tab and a running deployment stays visible", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt: "2026-11-12T13:08:00Z",
+        mergedAt: "2026-11-12T14:42:00Z",
+        mergedBy: "lmsastre",
+        events: [],
+        workflowRuns: [{ name: "Deploy production", status: "in_progress", conclusion: undefined, startedAt: "2026-11-12T14:42:00Z", headSha: "a".repeat(40) }],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+  inspector.handleInput("5");
+  assert.equal(inspector.getActiveTab(), "Timeline");
+  const lines = inspector.render(60).join("\n");
+  assert.match(lines, /Merged into main · lmsastre/);
+  assert.match(lines, /Deploy production/);
+});
+
+test("the Timeline tab distinguishes a pending collection from an unavailable one", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: { ...detail, timelinePending: true },
+  });
+  inspector.setTab("Timeline");
+  assert.match(inspector.render(60).join("\n"), /Loading timeline/);
+});
+
+test("timeline rendering does not mutate the pull request state", () => {
+  const timeline = {
+    fetchedAt: "2026-11-12T15:08:00Z",
+    openedAt: "2026-11-12T13:08:00Z",
+    mergedAt: "2026-11-12T14:42:00Z",
+    mergedBy: "lmsastre",
+    events: [],
+    workflowRuns: [],
+  };
+  const state = { ...detail, pullRequest: { ...detail.pullRequest, timeline } };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+  inspector.setTab("Timeline");
+  inspector.render(60);
+  assert.equal(state.pullRequest.timeline.events.length, 0);
+  assert.deepEqual(state.pullRequest.timeline, timeline);
+});
+
+test("the merge label uses the pull request base branch", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      baseBranch: "develop",
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt: "2026-11-12T13:08:00Z",
+        mergedAt: "2026-11-12T14:42:00Z",
+        mergedBy: "lmsastre",
+        events: [{ kind: "merged", at: "2026-11-12T14:42:00Z", author: "lmsastre", commit: "e9b42af111111111111111111111111111111111" }],
+        workflowRuns: [],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+  inspector.setTab("Timeline");
+  const lines = inspector.render(60).join("\n");
+  assert.match(lines, /Merged into develop/);
+  assert.doesNotMatch(lines, /Merged into main/);
+});
+
+test("completed runs with neutral conclusions are not shown as failures", () => {
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt: "2026-11-12T13:08:00Z",
+        mergedAt: undefined, mergedBy: "",
+        events: [],
+        workflowRuns: [
+          { name: "Nightly", status: "completed", conclusion: "skipped", startedAt: "2026-11-12T14:00:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+          { name: "Cancel bot", status: "completed", conclusion: "cancelled", startedAt: "2026-11-12T14:10:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+          { name: "CI", status: "completed", conclusion: "failure", startedAt: "2026-11-12T14:20:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+        ],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+  inspector.setTab("Timeline");
+  const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  // Failure keeps its error mark; skipped and cancelled do not read as errors.
+  assert.match(lines, /× CI · failure/);
+  assert.doesNotMatch(lines, /× Nightly/);
+  assert.doesNotMatch(lines, /× Cancel bot/);
+  assert.match(lines, /– Nightly · skipped/);
+  assert.match(lines, /– Cancel bot · cancelled/);
+});
+
+test("tab click regions never extend past the visible tabs text", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+  });
+
+  // A narrow modal truncates the tabs row; regions on truncated or blank
+  // space would activate tabs the user cannot see.
+  const plainTabs = inspector.render(30).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""))[1];
+  const visibleTabs = plainTabs.replace("│ ", "").replace(" │", "");
+  // No tab whose label is invisible may be clickable.
+  for (const tab of ["Overview", "Checks", "Files", "Context", "Timeline"].filter((tab) => !visibleTabs.includes(tab))) {
+    for (let x = 0; x < 40; x += 1) {
+      const result = inspector.handleMouse({ type: "click", button: "left", x, y: 1, width: 30, height: 20 });
+      if (result?.handled && inspector.getActiveTab() === tab) {
+        assert.fail(`invisible tab ${tab} is clickable at column ${x}`);
+      }
+    }
+  }
+});

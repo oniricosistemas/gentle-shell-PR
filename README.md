@@ -84,12 +84,17 @@ The v0.3 inspector adds a fourth tab:
 
 - **Context** — read-only review context for faster diagnosis: linked issues pulled from the pull request's closing references, unresolved review threads with their `file:line` location, and the failed check with a bounded, sanitized excerpt and annotations. Press `Enter` on that tab to expand or collapse the failed-check excerpt. All context is local-only; a collection failure degrades to an unavailable tab without affecting the loaded details.
 
-Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `1`–`4` to jump to a tab, `j`/`k` to scroll, `Enter` to expand the failed-check excerpt on the Context tab, `o` to open GitHub, and `Esc` to close the inspector.
+The v0.4 inspector adds a fifth tab:
+
+- **Timeline** — the pull request's story on one read-only line per entry: lifecycle events (reviews, merge, closed/ready/draft transitions) and GitHub Actions runs associated with the pull request's head or merge commit, including deployments that keep running after the merge. A merged pull request always shows its merge row even when the bounded event list is empty. Timeline is local-only and degrades like the Context tab.
+
+Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `1`–`5` to jump to a tab, or click a tab title, `j`/`k` to scroll, `Enter` to expand the failed-check excerpt on the Context tab, `o` to open GitHub, and `Esc` to close the inspector.
 
 ## Commands
 
 | Command | Action |
 | --- | --- |
+| `/pr-inbox` | Open the v0.5 cross-repository command center: sibling repositories, their open pull requests, and local attention filters (`f` owner, `a` attention, `Esc` close). Filters are pure local views and never change repository state. |
 | `/pr-refresh` | Refresh pull request data immediately. |
 | `/pr-sidebar` | Show or hide the sidebar. |
 | `/pr-sidebar-collapse` | Collapse or expand the panel. |
@@ -133,7 +138,7 @@ The request includes pull request facts, check results, and changed-file metadat
 
 Gentle Shell currently exposes its fullscreen right rail through an experimental in-process compatibility contract. This extension participates in the shared footer stack so it can coexist with Status and other compatible sidebar packages. It does not replace the rail root.
 
-The extension detects the host layout capability instead of parsing a version string: when the rail exposes `statusbar` or `header` slots (Gentle Shell 4.6+), it switches to a borderless, dense, collapsible row that fits the Integrations panel. In that mode the section defaults to a single collapsed header (`▸ Pull requests · N`) and expands to the same pull-request details on click. On older hosts without those slots, it keeps the original standalone bordered card and expanded-by-default behavior.
+The extension detects the host layout capability instead of parsing a version string: when the rail exposes `statusbar` or `header` slots (Gentle Shell 4.6+), it switches to a borderless, dense, collapsible row that fits the Integrations panel. In that mode the section starts expanded with the pull-request details visible and can be collapsed to a single header (`▸ Pull requests · N`) on click. On older hosts without those slots, it keeps the original standalone bordered card and expanded-by-default behavior.
 
 On current Gentle Shell builds whose tinted rail draws independent cards per participant, the shared rail wrapper forwards the host's optional `cardGroups(width)` contract and composes it with each visible participant: carded rails (which also declare `surface: "panel"`) receive a grouped section that renders one leading spacer outside its declared card group and a native rail title in accent without bold emphasis, so the host draws its own gap between cards instead of merging every section into one nested card; 4.6 panel hosts without card groups keep the plain borderless rows; and any participant without its own group metadata is composed as a single group spanning its rows.
 

@@ -1,5 +1,6 @@
-import { collectPullRequestContext, collectPullRequestDetail, collectPullRequests, executeFile } from "./github.js";import { createPullRequestInspector } from "./inspector.js";
-import { attachGentleShellRailPanel, createPullRequestPanel } from "./sidebar.js";
+import { collectPullRequestContext, collectPullRequestDetail, collectPullRequestInbox, collectPullRequests, collectPullRequestTimeline, executeFile } from "./github.js";
+import { createPullRequestInspector } from "./inspector.js";
+import { attachGentleShellRailPanel, createCommandCenterPanel, createPullRequestPanel } from "./sidebar.js";
 
 const UI_KEY = "gentle-shell-pr";
 const POLL_INTERVAL_MS = 60_000;
@@ -16,6 +17,8 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collect = dependencies.collect ?? collectPullRequests;
   const collectDetail = dependencies.collectDetail ?? collectPullRequestDetail;
   const collectContext = dependencies.collectContext ?? collectPullRequestContext;
+  const collectTimeline = dependencies.collectTimeline ?? collectPullRequestTimeline;
+  const collectInbox = dependencies.collectInbox ?? collectPullRequestInbox;
   const execute = dependencies.execute ?? executeFile;
   const matchesKey = dependencies.matchesKey;
   const renderMarkdown = dependencies.renderMarkdown;
@@ -147,23 +150,67 @@ export function createPrSidebarExtension(dependencies = {}) {
       if (active === current && current.inspectorSession === session && session.state.pullRequest) {
         // Show the loaded detail immediately; review context is optional and
         // arrives separately so a slow GraphQL query cannot hold the
-        // inspector on the loading state (review follow-up R4-1).
+        // inspector on the loading state (review follow-up R4-1). The Context
+        // tab distinguishes this pending window from a real failure.
+        // The target number is captured once so a late result can never
+        // attach context or timeline belonging to a different pull request.
+        // Both optional fetches start concurrently so a slow context query
+        // cannot delay the timeline, and both are issued while the session
+        // is alive so a later stop spends no further calls.
+        const targetNumber = session.state.pullRequest.number;
+        const stillCurrent = () => active === current && current.inspectorSession === session
+          && session.state.pullRequest?.number === targetNumber;
+        const clearPending = (marker) => {
+          // Pending markers only clear while this collection still targets
+          // the pull request it started for; a retargeted session keeps its
+          // own pending window.
+          if (session.state.pullRequest?.number !== targetNumber) return;
+          session.state = { ...session.state, [marker]: false };
+          if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
+        };
+        session.state = { ...session.state, contextPending: true, timelinePending: true };
         session.component?.setState(session.state);
-        try {
-          const collected = await collectContext({
-            cwd: context.cwd,
-            repository: current.state.repository,
-            number: session.state.pullRequest.number,
-          });
-          if (active === current && current.inspectorSession === session && !collected.error && collected.context) {
-            session.state = {
-              ...session.state,
-              pullRequest: { ...session.state.pullRequest, context: collected.context },
-            };
+
+        const contextPromise = (async () => {
+          try {
+            const collected = await collectContext({
+              cwd: context.cwd,
+              repository: current.state.repository,
+              number: targetNumber,
+            });
+            if (stillCurrent() && !collected.error && collected.context) {
+              session.state = {
+                ...session.state,
+                pullRequest: { ...session.state.pullRequest, context: collected.context },
+              };
+            }
+          } catch {
+            // Context stays unavailable.
+          } finally {
+            clearPending("contextPending");
           }
-        } catch {
-          // Context stays unavailable.
-        }
+        })();
+
+        const timelinePromise = (async () => {
+          try {
+            const timeline = await collectTimeline({
+              cwd: context.cwd,
+              repository: current.state.repository,
+              number: targetNumber,
+            });
+            if (stillCurrent() && !timeline.error && timeline.timeline) {
+              session.state = {
+                ...session.state,
+                pullRequest: { ...session.state.pullRequest, timeline: timeline.timeline },
+              };
+            }
+          } catch {
+            // Timeline stays unavailable.
+          } finally {
+            clearPending("timelinePending");
+          }
+        })();
+        await Promise.all([contextPromise, timelinePromise]);
       }
       if (active === current && current.inspectorSession === session) session.component?.setState(session.state);
     };
@@ -245,6 +292,50 @@ export function createPrSidebarExtension(dependencies = {}) {
         if (active === current && current.visible) void refresh(current);
       }, POLL_INTERVAL_MS);
       current.timerId?.unref?.();
+    });
+
+    pi.registerCommand("pr-inbox", {
+      description: "Open the cross-repository pull request command center",
+      handler: async (_args, context) => {
+        if (context.mode !== "tui" || typeof context.ui.custom !== "function") {
+          context.ui.notify("Pull request inbox requires interactive TUI mode", "warning");
+          return;
+        }
+        // Collection degrades to empty lists and per-repository error
+        // entries instead of a top-level error, so the panel always opens
+        // and shows its own empty/offline states.
+        const inbox = await collectInbox({ cwd: context.cwd });
+        try {
+          await context.ui.custom((tui, theme, keybindings, done) => {
+            const panel = createCommandCenterPanel({ tui, theme, initialState: inbox });
+            return {
+              render: panel.render,
+              invalidate: panel.invalidate,
+              digest: panel.digest,
+              handleInput(data) {
+                const cancel = keybindings?.matches?.(data, "tui.select.cancel") === true;
+                if (cancel || data === "\u001b" || data === "\u0003") {
+                  done(undefined);
+                  return;
+                }
+                if (data === "f") panel.cycleOwner();
+                else if (data === "a") panel.cycleAttention();
+              },
+            };
+          }, {
+            overlay: true,
+            overlayOptions: {
+              anchor: "center",
+              width: 60,
+              minWidth: 32,
+              maxHeight: "70%",
+              margin: 1,
+            },
+          });
+        } catch {
+          context.ui.notify("Pull request inbox unavailable", "warning");
+        }
+      },
     });
 
     pi.on("session_shutdown", () => stop());

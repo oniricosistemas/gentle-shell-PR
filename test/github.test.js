@@ -164,6 +164,7 @@ test("normalizePullRequest derives bounded CI, review, and merge facts", () => {
 
   assert.deepEqual(normalized, {
     number: 42,
+    author: "unknown",
     title: "Add PR sidebar",
     url: "https://github.com/oniricosistemas/gentle-shell-PR/pull/42",
     headBranch: "feat/sidebar",
@@ -247,7 +248,7 @@ test("collectPullRequests uses read-only git and gh commands and prioritizes the
         "--limit",
         "5",
         "--json",
-        "number,title,url,headRefName,baseRefName,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,latestReviews,updatedAt",
+        "author,number,title,url,headRefName,baseRefName,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,latestReviews,updatedAt",
       ],
       cwd: "/workspace/project",
     },
@@ -309,8 +310,8 @@ test("context collector runs one GraphQL query and check-run requests only when 
   assert.equal(calls[0][1][1], "graphql");
   assert.equal(calls[0][1][2], "-f");
   assert.match(calls[0][1][3], /^query=/);
-  assert.deepEqual(calls[1][1], ["api", "repos/org/repo/check-runs/CR_2", "--repo", "org/repo"]);
-  assert.deepEqual(calls[2][1], ["api", "repos/org/repo/check-runs/CR_2/annotations", "--repo", "org/repo"]);
+  assert.deepEqual(calls[1][1], ["api", "repos/org/repo/check-runs/CR_2"]);
+  assert.deepEqual(calls[2][1], ["api", "repos/org/repo/check-runs/CR_2/annotations"]);
 
   const { fetchedAt, ...context } = result.context;
   assert.match(fetchedAt, /^\d{4}-\d{2}-\d{2}T/);
@@ -404,4 +405,545 @@ test("context collector degrades gracefully when GraphQL or check data fails", a
     reviewThreads: [],
     failedCheck: { name: "Security", summary: undefined, annotations: [] },
   });
+});
+
+test("timeline collector runs one GraphQL query plus workflow-run requests only for known head sha", async () => {
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          createdAt: "2026-11-12T13:08:00Z",
+          mergedAt: "2026-11-12T14:42:00Z",
+          mergedBy: { login: "lmsastre" },
+          headRefName: "feat/pr-timeline",
+          headRefOid: "e9b42af000000000000000000000000000000000",
+          timelineItems: { nodes: [
+            { __typename: "PullRequestReview", state: "CHANGES_REQUESTED", submittedAt: "2026-11-12T13:26:00Z", author: { login: "gentle-review" } },
+            { __typename: "PullRequestReview", state: "APPROVED", submittedAt: "2026-11-12T14:38:00Z", author: { login: "gentle-review" } },
+            { __typename: "MergedEvent", createdAt: "2026-11-12T14:42:00Z", actor: { login: "lmsastre" }, commit: { oid: "e9b42af111111111111111111111111111111111" } },
+            { __typename: "IssueComment", body: "not a timeline entry we request", createdAt: "2026-11-12T13:30:00Z" },
+          ] },
+        },
+      },
+    },
+  };
+  const calls = [];
+  const result = await github.collectPullRequestTimeline({
+    cwd: "/workspace/project", repository: "org/repo", number: 51,
+    execute: async (_command, args) => {
+      calls.push(args);
+      if (args[1] === "graphql") return { exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" };
+      if (args[1]?.startsWith("repos/org/repo/actions/runs?head_sha=e9b42af000000000000000000000000000000000&")) {
+        return { exitCode: 0, stdout: JSON.stringify({ workflow_runs: [
+          { id: 1, name: "Deploy production", status: "in_progress", conclusion: null, head_sha: "e9b42af000000000000000000000000000000000", created_at: "2026-11-12T14:42:00Z" },
+        ], total_count: 1 }), stderr: "" };
+      }
+      if (args[1]?.startsWith("repos/org/repo/actions/runs?head_sha=e9b42af111111111111111111111111111111111&")) {
+        return { exitCode: 0, stdout: JSON.stringify({ workflow_runs: [
+          { id: 2, name: "Deploy production", status: "completed", conclusion: "success", head_sha: "e9b42af111111111111111111111111111111111", created_at: "2026-11-12T14:41:00Z" },
+          { id: 3, name: "Unrelated", status: "completed", conclusion: "failure", head_sha: "beef0000000000000000000000000000000000000", created_at: "2026-11-12T10:00:00Z" },
+        ], total_count: 2 }), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  // One Actions call per relevant SHA: the API rejects comma-joined head_sha.
+  assert.equal(calls.length, 3);
+  assert.equal(calls[1][1], "repos/org/repo/actions/runs?head_sha=e9b42af000000000000000000000000000000000&per_page=20");
+  assert.equal(calls[2][1], "repos/org/repo/actions/runs?head_sha=e9b42af111111111111111111111111111111111&per_page=20");
+
+  const { fetchedAt, ...timeline } = result.timeline;
+  assert.match(fetchedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(timeline, {
+    openedAt: "2026-11-12T13:08:00Z",
+    mergedAt: "2026-11-12T14:42:00Z",
+    mergedBy: "lmsastre",
+    events: [
+      { kind: "review", state: "CHANGES_REQUESTED", at: "2026-11-12T13:26:00Z", author: "gentle-review" },
+      { kind: "review", state: "APPROVED", at: "2026-11-12T14:38:00Z", author: "gentle-review" },
+      { kind: "merged", at: "2026-11-12T14:42:00Z", author: "lmsastre", commit: "e9b42af111111111111111111111111111111111" },
+    ],
+    workflowRuns: [
+      { name: "Deploy production", status: "in_progress", conclusion: undefined, startedAt: "2026-11-12T14:42:00Z", headSha: "e9b42af000000000000000000000000000000000" },
+      { name: "Deploy production", status: "completed", conclusion: "success", startedAt: "2026-11-12T14:41:00Z", headSha: "e9b42af111111111111111111111111111111111" },
+    ],
+  });
+});
+
+test("timeline collector bounds events and runs and degrades gracefully", async () => {
+  const failing = async () => ({ exitCode: 1, stdout: "", stderr: "boom" });
+  assert.deepEqual(
+    await github.collectPullRequestTimeline({ cwd: "/w", repository: "org/repo", number: 5, execute: failing }),
+    { repository: "org/repo", error: "Could not load pull request timeline", timeline: undefined },
+  );
+
+  const badJson = async (_command, args) => args[1] === "graphql"
+    ? { exitCode: 0, stdout: "not json", stderr: "" }
+    : { exitCode: 0, stdout: "", stderr: "" };
+  assert.deepEqual(
+    await github.collectPullRequestTimeline({ cwd: "/w", repository: "org/repo", number: 5, execute: badJson }),
+    { repository: "org/repo", error: "GitHub returned invalid pull request timeline data", timeline: undefined },
+  );
+
+  // Workflow-run failures degrade to an empty run list without breaking the timeline.
+  const events = Array.from({ length: 14 }, (_, index) => ({
+    __typename: "PullRequestReview", state: "APPROVED", submittedAt: `2026-11-12T13:${String(index).padStart(2, "0")}:00Z`, author: { login: `user${index}` },
+  }));
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          createdAt: "2026-11-12T13:08:00Z", mergedAt: null, mergedBy: null, headRefName: "a", headRefOid: "b".repeat(40),
+          timelineItems: { nodes: events },
+        },
+      },
+    },
+  };
+  const result = await github.collectPullRequestTimeline({
+    cwd: "/w", repository: "org/repo", number: 9,
+    execute: async (_command, args) => args[1] === "graphql"
+      ? { exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" }
+      : { exitCode: 1, stdout: "", stderr: "boom" },
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.timeline.events.length, 10);
+  assert.deepEqual(result.timeline.workflowRuns, []);
+});
+
+test("inbox collector discovers workspace repositories and aggregates their pull requests", async () => {
+  const calls = [];
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    fsImpl: makeFs({
+      "/workspace": [["pr-flow", true], ["stockia", true], ["node_modules", true]],
+      "/workspace/pr-flow": [[".git", true]],
+      "/workspace/stockia": [["README.md", false]],
+    }),
+    execute: async (command, args, options) => {
+      calls.push([args[0], args[1], options?.cwd]);
+      if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
+        return options?.cwd === "/workspace/pr-flow"
+          ? { exitCode: 0, stdout: "https://github.com/oniricosistemas/gentle-shell-PR.git\n", stderr: "" }
+          : { exitCode: 1, stdout: "", stderr: "" };
+      }
+      if (command === "gh" && args[0] === "pr") {
+        return { exitCode: 0, stdout: JSON.stringify([
+          { number: 58, title: "Add cross-repo inbox filters", url: "u", headRefName: "a", baseRefName: "main", isDraft: false, reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED", latestReviews: [], updatedAt: "2026-11-13T12:00:00Z", author: { login: "lmsastre" } },
+        ]), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected" };
+    },
+    limit: 3,
+  });
+
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.repositories, [
+    { repository: "oniricosistemas/gentle-shell-PR", cwd: "/workspace/pr-flow", current: true },
+  ]);
+  assert.equal(result.inbox.length, 1);
+  assert.equal(result.inbox[0].repository, "oniricosistemas/gentle-shell-PR");
+  assert.equal(result.inbox[0].pullRequests[0].number, 58);
+  // node_modules is never probed and no discovery process is spawned.
+  assert.equal(calls.some(([command]) => command === "find"), false);
+  assert.equal(calls.some(([, cwd]) => cwd === "/workspace/pr-flow/node_modules"), false);
+});
+
+test("inbox collector bounds discovery depth and per-repository requests", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/repo0",
+    fsImpl: makeFs({
+      "/workspace": Array.from({ length: 12 }, (_, index) => [`repo${index}`, true]),
+      ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`/workspace/repo${index}`, [[".git", true]]])),
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
+        return { exitCode: 0, stdout: `https://github.com/owner/repo${options?.cwd?.match(/repo(\d+)/)?.[1]}.git\n`, stderr: "" };
+      }
+      const bounded = Math.min(8, Number(args[args.indexOf("--limit") + 1] ?? 8));
+      return { exitCode: 0, stdout: JSON.stringify(Array.from({ length: bounded }, (_, index) => ({
+        number: index, title: `PR ${index}`, url: "u", headRefName: "a", baseRefName: "main", isDraft: false,
+        reviewDecision: "REVIEW_REQUIRED", mergeStateStatus: "BLOCKED", latestReviews: [], updatedAt: "2026-11-13T12:00:00Z",
+      }))), stderr: "" };
+    },
+    limit: 5,
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.repositories.length, 8);
+  assert.equal(result.inbox.length, 8);
+  assert.equal(result.inbox.every((entry) => entry.pullRequests.length <= 5), true);
+  assert.equal(result.inbox[0].pullRequests.every((pr) => pr.author === "unknown"), true);
+});
+
+test("inbox collector degrades gracefully offline and reports per-repository failures", async () => {
+  const failing = async () => { throw new Error("offline"); };
+  const offline = await github.collectPullRequestInbox({ cwd: "/w", execute: failing, limit: 3 });
+  assert.equal(offline.error, undefined);
+  assert.deepEqual(offline.repositories, []);
+  assert.deepEqual(offline.inbox, []);
+
+  // A GitHub failure for one repository does not break the rest.
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/a",
+    fsImpl: makeFs({
+      "/workspace": [["a", true], ["b", true]],
+      "/workspace/a": [[".git", true]],
+      "/workspace/b": [[".git", true]],
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.slice(-1)}.git\n`, stderr: "" };
+      }
+      return args[3]?.endsWith("/a")
+        ? { exitCode: 1, stdout: "", stderr: "gh failed" }
+        : { exitCode: 0, stdout: "[]", stderr: "" };
+    },
+    limit: 3,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.inbox.length, 2);
+  assert.equal(result.inbox.find((entry) => entry.repository === "owner/a")?.error, "Could not load pull requests");
+  assert.deepEqual(result.inbox.find((entry) => entry.repository === "owner/b")?.pullRequests, []);
+});
+
+test("inbox filters are pure local views over the aggregated inbox", () => {
+  const inbox = [
+    { repository: "owner/current", cwd: "/w/current", error: undefined, pullRequests: [
+      { number: 1, title: "A", author: "lmsastre", headBranch: "a", review: "waiting", merge: "blocked", checks: { passed: 2, failed: 0, pending: 1, total: 3 } },
+      { number: 2, title: "B", author: "octo", headBranch: "b", review: "approved", merge: "ready", checks: { passed: 3, failed: 1, pending: 0, total: 4 } },
+    ] },
+    { repository: "owner/other", cwd: "/w/other", error: undefined, pullRequests: [
+      { number: 3, title: "C", author: "lmsastre", headBranch: "c", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+    ] },
+    { repository: "owner/broken", cwd: "/w/broken", error: "Could not load pull requests", pullRequests: [] },
+  ];
+
+  // Owner filter keeps repository grouping and only that owner's PRs.
+  const owned = github.filterPullRequestInbox(inbox, { owner: "lmsastre" });
+  assert.deepEqual(owned.map((entry) => entry.repository), ["owner/current", "owner/other", "owner/broken"]);
+  assert.deepEqual(owned[0].pullRequests.map((pr) => pr.number), [1]);
+  assert.deepEqual(owned[2].pullRequests, []);
+
+  // Attention filters select at-risk pull requests across repositories.
+  const reviewRequested = github.filterPullRequestInbox(inbox, { attention: "review_requested" });
+  assert.deepEqual(reviewRequested[0].pullRequests.map((pr) => pr.number), [1]);
+  assert.deepEqual(reviewRequested[1].pullRequests, []);
+  const failedCi = github.filterPullRequestInbox(inbox, { attention: "failed_ci" });
+  assert.deepEqual(failedCi[0].pullRequests.map((pr) => pr.number), [2]);
+
+  // No filter returns the input untouched (same order, same groups).
+  assert.deepEqual(github.filterPullRequestInbox(inbox, {}), inbox);
+
+  // Empty and offline inputs degrade to empty views without errors.
+  assert.deepEqual(github.filterPullRequestInbox([], { owner: "lmsastre" }), []);
+  assert.deepEqual(github.filterPullRequestInbox(undefined, { attention: "failed_ci" }), []);
+});
+
+test("timeline collector keeps the most recent events and uses mergeCommit oid", async () => {
+  const review = (index) => ({
+    __typename: "PullRequestReview", state: "COMMENTED",
+    submittedAt: `2026-11-12T13:${String(index).padStart(2, "0")}:00Z`, author: { login: `reviewer-${index}` },
+  });
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          createdAt: "2026-11-12T13:08:00Z",
+          mergedAt: "2026-11-12T14:42:00Z",
+          mergedBy: { login: "lmsastre" },
+          headRefName: "feat/pr-timeline",
+          headRefOid: "e9b42af000000000000000000000000000000000",
+          mergeCommit: { oid: "e9b42af111111111111111111111111111111111" },
+          // No MergedEvent node at all: the merge commit must come from
+          // pullRequest.mergeCommit so its runs are still queried.
+          timelineItems: { nodes: [
+            ...Array.from({ length: 12 }, (_, index) => review(index)),
+          ] },
+        },
+      },
+    },
+  };
+  const runCalls = [];
+  const result = await github.collectPullRequestTimeline({
+    cwd: "/workspace/project", repository: "org/repo", number: 51,
+    execute: async (_command, args) => {
+      if (args[1] === "graphql") return { exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" };
+      if (args[1]?.startsWith("repos/org/repo/actions/runs?head_sha=e9b42af111111111111111111111111111111111&")) {
+        runCalls.push(args[1]);
+        return { exitCode: 0, stdout: JSON.stringify({ workflow_runs: [
+          { id: 2, name: "Deploy production", status: "completed", conclusion: "success", head_sha: "e9b42af111111111111111111111111111111111", created_at: "2026-11-12T14:41:00Z" },
+        ], total_count: 1 }), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  // The merge commit SHA is queried even without a surviving MergedEvent.
+  assert.deepEqual(runCalls, ["repos/org/repo/actions/runs?head_sha=e9b42af111111111111111111111111111111111&per_page=20"]);
+  // The bounded list keeps the most recent events, not the oldest ones.
+  assert.equal(result.timeline.events.length, 10);
+  assert.equal(result.timeline.events[9].author, "reviewer-11");
+  assert.equal(result.timeline.events[0].author, "reviewer-2");
+});
+
+test("timeline collector maps ready, draft, and dismissed lifecycle events", async () => {
+  const graphqlPayload = {
+    data: {
+      repository: {
+        pullRequest: {
+          createdAt: "2026-11-12T13:08:00Z",
+          mergedAt: undefined, mergedBy: undefined,
+          headRefName: "feat/pr-timeline", headRefOid: "e9b42af000000000000000000000000000000000",
+          timelineItems: { nodes: [
+            // GitHub only returns the fields the fragments request; these
+            // lifecycle events must carry createdAt to survive the filter.
+            { __typename: "ConvertToDraftEvent", createdAt: "2026-11-12T13:20:00Z", actor: { login: "lmsastre" } },
+            { __typename: "ReadyForReviewEvent", createdAt: "2026-11-12T13:30:00Z", actor: { login: "lmsastre" } },
+            { __typename: "ReviewDismissedEvent", createdAt: "2026-11-12T13:40:00Z", actor: { login: "gentle-review" } },
+          ] },
+        },
+      },
+    },
+  };
+  const result = await github.collectPullRequestTimeline({
+    cwd: "/workspace/project", repository: "org/repo", number: 52,
+    execute: async () => ({ exitCode: 0, stdout: JSON.stringify(graphqlPayload), stderr: "" }),
+  });
+
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.timeline.events.map((event) => event.kind), ["draft", "ready", "dismissed"]);
+});
+
+test("inbox collector degrades per repository when pull request collection throws", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    fsImpl: makeFs({
+      "/workspace": [["pr-flow", true], ["broken", true], ["healthy", true]],
+      "/workspace/pr-flow": [[".git", true]],
+      "/workspace/broken": [[".git", true]],
+      "/workspace/healthy": [[".git", true]],
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
+      }
+      if (command === "gh" && args[0] === "pr") {
+        if (options?.cwd === "/workspace/broken") throw new Error("gh exploded");
+        return { exitCode: 0, stdout: JSON.stringify([
+          { number: 7, title: "Healthy", url: "u", headRefName: "a", baseRefName: "main", isDraft: false, reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", latestReviews: [], updatedAt: "2026-11-13T12:00:00Z", author: { login: "lmsastre" } },
+        ]), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.inbox.length, 3);
+  const broken = result.inbox.find((entry) => entry.cwd === "/workspace/broken");
+  const healthy = result.inbox.find((entry) => entry.cwd === "/workspace/healthy");
+  // One broken repository degrades to an errored entry; the rest survive.
+  assert.equal(broken.error, "Could not collect pull requests");
+  assert.deepEqual(broken.pullRequests, []);
+  assert.equal(healthy.error, undefined);
+  assert.equal(healthy.pullRequests[0].number, 7);
+});
+
+test("inbox collector marks the current repository with tolerant path comparison", async () => {
+  const result = await github.collectPullRequestInbox({
+    // Relative path with a trailing slash: string equality would miss it.
+    cwd: "/workspace/pr-flow/",
+    fsImpl: makeFs({
+      "/workspace": [["pr-flow", true], ["other", true]],
+      "/workspace/pr-flow": [[".git", true]],
+      "/workspace/other": [[".git", true]],
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return options?.cwd === "/workspace/pr-flow"
+          ? { exitCode: 0, stdout: "https://github.com/owner/pr-flow.git\n", stderr: "" }
+          : { exitCode: 0, stdout: "https://github.com/owner/other.git\n", stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  const current = result.repositories.find((entry) => entry.current);
+  assert.equal(current?.repository, "owner/pr-flow");
+});
+
+test("timeline collector requests the most recent window with last", async () => {
+  const calls = [];
+  await github.collectPullRequestTimeline({
+    cwd: "/workspace/project", repository: "org/repo", number: 51,
+    execute: async (_command, args) => {
+      calls.push(args[3]);
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+  // first: 40 keeps the oldest events of a large PR; the window must be last.
+  assert.match(calls[0], /timelineItems\(last: 40,/);
+  assert.doesNotMatch(calls[0], /timelineItems\(first:/);
+});
+
+test("inbox collector marks current case-insensitively on case-insensitive platforms", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    platform: "darwin",
+    fsImpl: makeFs({
+      "/workspace": [["Pr-Flow", true], ["other", true]],
+      "/workspace/Pr-Flow": [[".git", true]],
+      "/workspace/other": [[".git", true]],
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return options?.cwd === "/workspace/Pr-Flow"
+          ? { exitCode: 0, stdout: "https://github.com/owner/pr-flow.git\n", stderr: "" }
+          : { exitCode: 0, stdout: "https://github.com/owner/other.git\n", stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  const current = result.repositories.find((entry) => entry.current);
+  // macOS compares paths case-insensitively: the discovered root is the
+  // current repository even when capitalization differs.
+  assert.equal(current?.repository, "owner/pr-flow");
+});
+
+function makeFs(tree) {
+  return {
+    readdir: async (dir) => {
+      const entries = tree[dir];
+      if (!entries) {
+        const error = new Error(`ENOENT: ${dir}`);
+        error.code = "ENOENT";
+        throw error;
+      }
+      return entries.map(([name, isDir]) => ({ name, isDirectory: () => isDir }));
+    },
+  };
+}
+
+test("inbox collector discovers repositories without the Unix find command", async () => {
+  const commands = [];
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    platform: "win32",
+    fsImpl: makeFs({
+      "/workspace": [["pr-flow", true], ["stockia", true], ["node_modules", true]],
+      "/workspace/pr-flow": [[".git", true]],
+      "/workspace/stockia": [["README.md", false]],
+    }),
+    execute: async (command, args, options) => {
+      commands.push([command, options?.cwd]);
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: "https://github.com/owner/pr-flow.git\n", stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  // Discovery walks the filesystem portably: the first (and only discovery)
+  // process is `git remote`, never the Unix `find` command.
+  assert.equal(commands[0][0], "git");
+  assert.equal(commands.some(([command]) => command === "find"), false);
+  assert.deepEqual(result.repositories, [
+    { repository: "owner/pr-flow", cwd: "/workspace/pr-flow", current: true },
+  ]);
+});
+
+test("pull request listing requests the author field", async () => {
+  const calls = [];
+  await github.collectPullRequests({
+    cwd: "/workspace/repo",
+    execute: async (command, args) => {
+      calls.push(args);
+      if (command === "git") return { exitCode: 0, stdout: "https://github.com/owner/repo.git\n", stderr: "" };
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  const jsonArgs = calls.filter((args) => args.includes("--json"));
+  assert.ok(jsonArgs.length > 0, "the collector must call gh pr list with --json");
+  const fields = jsonArgs[0][jsonArgs[0].indexOf("--json") + 1];
+  // The command center owner filter groups by author; without the field
+  // every pull request normalizes to the "unknown" placeholder.
+  assert.match(fields, /(^|,)author(,|$)/);
+});
+
+test("inbox discovery accepts .git files from worktrees and submodules", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/main-repo",
+    fsImpl: makeFs({
+      "/workspace": [["main-repo", true], ["linked-worktree", true], ["vendor-module", true]],
+      "/workspace/main-repo": [[".git", true]],
+      // Worktrees and submodules carry .git as a gitdir pointer file.
+      "/workspace/linked-worktree": [[".git", false]],
+      "/workspace/vendor-module": [[".git", false]],
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  assert.deepEqual(result.repositories.map((entry) => entry.repository), [
+    "owner/main-repo", "owner/linked-worktree", "owner/vendor-module",
+  ]);
+});
+
+test("inbox discovery finds sibling repositories from a repository subdirectory", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow/src",
+    fsImpl: makeFs({
+      "/workspace/pr-flow/src": [["extension.js", false]],
+      "/workspace/pr-flow": [[".git", true], ["src", true]],
+      "/workspace": [["pr-flow", true], ["sibling-repo", true]],
+      "/workspace/sibling-repo": [[".git", true]],
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  // Walking up from the subdirectory reaches the enclosing repository root;
+  // sibling discovery then sees the whole workspace, not the subdirectory.
+  assert.deepEqual(result.repositories.map((entry) => entry.repository), [
+    "owner/pr-flow", "owner/sibling-repo",
+  ]);
+  assert.equal(result.repositories.find((entry) => entry.current)?.repository, "owner/pr-flow");
+});
+
+test("inbox discovery prioritizes the current repository over the repository limit", async () => {
+  // 10 sibling repositories with names sorting after the current one.
+  const tree = {
+    "/workspace": [...Array.from({ length: 10 }, (_, i) => [`repo-${String(i).padStart(2, "0")}`, true]), ["pr-flow", true]],
+    "/workspace/pr-flow": [[".git", true]],
+    ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`/workspace/repo-${String(i).padStart(2, "0")}`, [[".git", true]]])),
+  };
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    fsImpl: makeFs(tree),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  // With 11 discovered roots the bounded inbox would drop the alphabetically
+  // last repository; the current repository must always be included.
+  const current = result.inbox.find((entry) => entry.cwd === "/workspace/pr-flow");
+  assert.ok(current, "the current repository must survive the repository limit");
+  assert.equal(result.inbox.length, 8);
 });

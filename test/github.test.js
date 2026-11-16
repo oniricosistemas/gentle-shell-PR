@@ -516,12 +516,13 @@ test("inbox collector discovers workspace repositories and aggregates their pull
   const calls = [];
   const result = await github.collectPullRequestInbox({
     cwd: "/workspace/pr-flow",
+    fsImpl: makeFs({
+      "/workspace": [["pr-flow", true], ["stockia", true], ["node_modules", true]],
+      "/workspace/pr-flow": [[".git", true]],
+      "/workspace/stockia": [["README.md", false]],
+    }),
     execute: async (command, args, options) => {
       calls.push([args[0], args[1], options?.cwd]);
-      if (command === "find") {
-        assert.equal(args[0], "/workspace", "discovery walks the parent directory");
-        return { exitCode: 0, stdout: "/workspace/pr-flow\n/workspace/stockia\n/workspace/pr-flow/node_modules", stderr: "" };
-      }
       if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
         return options?.cwd === "/workspace/pr-flow"
           ? { exitCode: 0, stdout: "https://github.com/oniricosistemas/gentle-shell-PR.git\n", stderr: "" }
@@ -544,16 +545,19 @@ test("inbox collector discovers workspace repositories and aggregates their pull
   assert.equal(result.inbox.length, 1);
   assert.equal(result.inbox[0].repository, "oniricosistemas/gentle-shell-PR");
   assert.equal(result.inbox[0].pullRequests[0].number, 58);
-  // node_modules is never probed.
-  assert.equal(calls.some(([, arg]) => arg === "/workspace/pr-flow/node_modules"), false);
+  // node_modules is never probed and no discovery process is spawned.
+  assert.equal(calls.some(([command]) => command === "find"), false);
+  assert.equal(calls.some(([, cwd]) => cwd === "/workspace/pr-flow/node_modules"), false);
 });
 
 test("inbox collector bounds discovery depth and per-repository requests", async () => {
-  const repos = Array.from({ length: 12 }, (_, index) => `/workspace/repo${index}`);
   const result = await github.collectPullRequestInbox({
-    cwd: "/workspace",
+    cwd: "/workspace/repo0",
+    fsImpl: makeFs({
+      "/workspace": Array.from({ length: 12 }, (_, index) => [`repo${index}`, true]),
+      ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`/workspace/repo${index}`, [[".git", true]]])),
+    }),
     execute: async (command, args, options) => {
-      if (command === "find") return { exitCode: 0, stdout: repos.join("\n"), stderr: "" };
       if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
         return { exitCode: 0, stdout: `https://github.com/owner/repo${options?.cwd?.match(/repo(\d+)/)?.[1]}.git\n`, stderr: "" };
       }
@@ -582,9 +586,13 @@ test("inbox collector degrades gracefully offline and reports per-repository fai
 
   // A GitHub failure for one repository does not break the rest.
   const result = await github.collectPullRequestInbox({
-    cwd: "/workspace",
+    cwd: "/workspace/a",
+    fsImpl: makeFs({
+      "/workspace": [["a", true], ["b", true]],
+      "/workspace/a": [[".git", true]],
+      "/workspace/b": [[".git", true]],
+    }),
     execute: async (command, args, options) => {
-      if (command === "find") return { exitCode: 0, stdout: "/workspace/a\n/workspace/b", stderr: "" };
       if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
         return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.slice(-1)}.git\n`, stderr: "" };
       }
@@ -712,8 +720,13 @@ test("timeline collector maps ready, draft, and dismissed lifecycle events", asy
 test("inbox collector degrades per repository when pull request collection throws", async () => {
   const result = await github.collectPullRequestInbox({
     cwd: "/workspace/pr-flow",
+    fsImpl: makeFs({
+      "/workspace": [["pr-flow", true], ["broken", true], ["healthy", true]],
+      "/workspace/pr-flow": [[".git", true]],
+      "/workspace/broken": [[".git", true]],
+      "/workspace/healthy": [[".git", true]],
+    }),
     execute: async (command, args, options) => {
-      if (command === "find") return { exitCode: 0, stdout: "/workspace/pr-flow\n/workspace/broken\n/workspace/healthy", stderr: "" };
       if (command === "git" && args[0] === "remote") {
         return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
       }
@@ -742,8 +755,12 @@ test("inbox collector marks the current repository with tolerant path comparison
   const result = await github.collectPullRequestInbox({
     // Relative path with a trailing slash: string equality would miss it.
     cwd: "/workspace/pr-flow/",
+    fsImpl: makeFs({
+      "/workspace": [["pr-flow", true], ["other", true]],
+      "/workspace/pr-flow": [[".git", true]],
+      "/workspace/other": [[".git", true]],
+    }),
     execute: async (command, args, options) => {
-      if (command === "find") return { exitCode: 0, stdout: "/workspace/pr-flow\n/workspace/other", stderr: "" };
       if (command === "git" && args[0] === "remote") {
         return options?.cwd === "/workspace/pr-flow"
           ? { exitCode: 0, stdout: "https://github.com/owner/pr-flow.git\n", stderr: "" }
@@ -775,10 +792,14 @@ test("inbox collector marks current case-insensitively on case-insensitive platf
   const result = await github.collectPullRequestInbox({
     cwd: "/workspace/pr-flow",
     platform: "darwin",
+    fsImpl: makeFs({
+      "/workspace": [["Pr-Flow", true], ["other", true]],
+      "/workspace/Pr-Flow": [[".git", true]],
+      "/workspace/other": [[".git", true]],
+    }),
     execute: async (command, args, options) => {
-      if (command === "find") return { exitCode: 0, stdout: "/Workspace/Pr-Flow\n/workspace/other", stderr: "" };
       if (command === "git" && args[0] === "remote") {
-        return options?.cwd === "/Workspace/Pr-Flow"
+        return options?.cwd === "/workspace/Pr-Flow"
           ? { exitCode: 0, stdout: "https://github.com/owner/pr-flow.git\n", stderr: "" }
           : { exitCode: 0, stdout: "https://github.com/owner/other.git\n", stderr: "" };
       }
@@ -790,4 +811,47 @@ test("inbox collector marks current case-insensitively on case-insensitive platf
   // macOS compares paths case-insensitively: the discovered root is the
   // current repository even when capitalization differs.
   assert.equal(current?.repository, "owner/pr-flow");
+});
+
+function makeFs(tree) {
+  return {
+    readdir: async (dir) => {
+      const entries = tree[dir];
+      if (!entries) {
+        const error = new Error(`ENOENT: ${dir}`);
+        error.code = "ENOENT";
+        throw error;
+      }
+      return entries.map(([name, isDir]) => ({ name, isDirectory: () => isDir }));
+    },
+  };
+}
+
+test("inbox collector discovers repositories without the Unix find command", async () => {
+  const commands = [];
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow",
+    platform: "win32",
+    fsImpl: makeFs({
+      "/workspace": [["pr-flow", true], ["stockia", true], ["node_modules", true]],
+      "/workspace/pr-flow": [[".git", true]],
+      "/workspace/stockia": [["README.md", false]],
+    }),
+    execute: async (command, args, options) => {
+      commands.push([command, options?.cwd]);
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: "https://github.com/owner/pr-flow.git\n", stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  // Discovery walks the filesystem portably: the first (and only discovery)
+  // process is `git remote`, never the Unix `find` command.
+  assert.equal(commands[0][0], "git");
+  assert.equal(commands.some(([command]) => command === "find"), false);
+  assert.deepEqual(result.repositories, [
+    { repository: "owner/pr-flow", cwd: "/workspace/pr-flow", current: true },
+  ]);
 });

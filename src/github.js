@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { dirname, resolve as resolvePath } from "node:path";
+import { promises as fsPromises } from "node:fs";
+import { basename, dirname, resolve as resolvePath } from "node:path";
 
 const PR_FIELDS = [
   "number",
@@ -500,43 +501,69 @@ function samePath(left, right, platform = process.platform) {
 const INBOX_REPOSITORY_LIMIT = 8;
 
 /**
+ * Portable sibling-repository discovery: lists the search root and its
+ * immediate children looking for .git directories, skipping dependency
+ * directories by name. Uses Node filesystem APIs so it works on every
+ * platform instead of shelling out to the Unix `find` command.
+ */
+async function discoverGitRoots({ searchRoot, fsImpl }) {
+  const roots = [];
+  const cache = new Map();
+  const list = async (dir) => {
+    if (!cache.has(dir)) {
+      let entries = [];
+      try {
+        entries = await fsImpl.readdir(dir, { withFileTypes: true });
+      } catch {
+        // An unreadable directory contributes no repositories.
+        entries = [];
+      }
+      cache.set(dir, entries);
+    }
+    return cache.get(dir);
+  };
+  const hasGitDirectory = (entries) => entries.some((entry) => entry.name === ".git" && entry.isDirectory?.());
+
+  const topEntries = await list(searchRoot);
+  // The search root itself may be a repository (depth-1 .git), and sibling
+  // repositories live one level below it.
+  if (hasGitDirectory(topEntries)) roots.push(searchRoot);
+  for (const entry of topEntries) {
+    if (!entry.isDirectory?.() || entry.name === "node_modules") continue;
+    const child = resolvePath(searchRoot, entry.name);
+    if (hasGitDirectory(await list(child))) roots.push(child);
+  }
+  return roots;
+}
+
+/**
  * Cross-repository pull request inbox (v0.5 Command Center). Discovery walks
  * the workspace for sibling Git repositories, reads each origin remote, and
  * aggregates a bounded list of open pull requests per repository. Discovery
  * is local-only; GitHub queries are the same bounded read-only list the
  * sidebar uses. Every failure degrades without breaking the caller.
  */
-export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5, platform = process.platform }) {
+export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5, platform = process.platform, fsImpl = fsPromises }) {
   const repositories = [];
   try {
     // Sibling workspaces live next to the current repository, so discovery
     // walks its parent directory.
-    const searchRoot = dirname(String(cwd ?? "."));
-    const findResult = await execute("find", [
-      searchRoot, "-maxdepth", "2", "-name", ".git", "-type", "d",
-    ], { cwd, timeoutMs: 10_000 });
-    if (findResult.exitCode === 0) {
-      const roots = String(findResult.stdout)
-        .split("\n")
-        .map((line) => line.trim().replace(/\/.git$/, ""))
-        .filter(Boolean);
-      for (const root of roots.slice(0, INBOX_REPOSITORY_LIMIT * 2)) {
-        // Dependency directories are never probed.
-        if (root.includes("/node_modules/")) continue;
-        const remoteResult = await execute("git", ["remote", "get-url", "origin"], { cwd: root, timeoutMs: 10_000 });
-        const repository = remoteResult.exitCode === 0 ? parseGitHubRemote(remoteResult.stdout) : undefined;
-        if (repository) {
-          repositories.push({
-            repository,
-            cwd: root,
-            // Discovery reports absolute normalized roots while the caller
-            // may pass a relative or trailing-slash cwd; compare resolved
-            // paths so the current repository is still marked as current.
-            // macOS and Windows compare paths case-insensitively, so those
-            // platforms also ignore capitalization differences.
-            current: samePath(root, cwd ?? ".", platform),
-          });
-        }
+    const searchRoot = dirname(resolvePath(String(cwd ?? ".")));
+    const roots = (await discoverGitRoots({ searchRoot, fsImpl })).slice(0, INBOX_REPOSITORY_LIMIT * 2);
+    for (const root of roots) {
+      const remoteResult = await execute("git", ["remote", "get-url", "origin"], { cwd: root, timeoutMs: 10_000 });
+      const repository = remoteResult.exitCode === 0 ? parseGitHubRemote(remoteResult.stdout) : undefined;
+      if (repository) {
+        repositories.push({
+          repository,
+          cwd: root,
+          // Discovery reports absolute normalized roots while the caller
+          // may pass a relative or trailing-slash cwd; compare resolved
+          // paths so the current repository is still marked as current.
+          // macOS and Windows compare paths case-insensitively, so those
+          // platforms also ignore capitalization differences.
+          current: samePath(root, cwd ?? ".", platform),
+        });
       }
     }
   } catch {

@@ -733,3 +733,28 @@ test("setState keeps the selected owner by identity, not position", () => {
   ] });
   assert.match(plain(), /Filter: All owners/);
 });
+
+test("missing pull request authors are not selectable as owners", () => {
+  const panel = createCommandCenterPanel({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: {
+      repositories: [],
+      inbox: [
+        { repository: "owner/a", cwd: "/w/a", error: undefined, pullRequests: [
+          { number: 1, title: "Real author", author: "lmsastre", headBranch: "x", review: "waiting", merge: "blocked", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+          { number: 2, title: "No author data", author: "unknown", headBranch: "y", review: "approved", merge: "ready", checks: { passed: 1, failed: 0, pending: 0, total: 1 } },
+        ] },
+      ],
+    },
+  });
+
+  const plain = () => panel.render(64).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  // The first owner cycle lands on the real author, skipping the fictitious
+  // "unknown" identity that missing author data used to create.
+  panel.cycleOwner();
+  assert.match(plain(), /Filter: lmsastre/);
+  // The ownerless pull request only exists under the fictitious identity,
+  // so a real-owner filter excludes it instead of mixing identities.
+  assert.doesNotMatch(plain(), /#2 No author data/);
+});

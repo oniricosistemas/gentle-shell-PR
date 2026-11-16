@@ -61,7 +61,7 @@ const ATTENTION_LABELS = { review_requested: "review requested", failed_ci: "fai
  */
 export function createCommandCenterPanel({ tui, theme, initialState }) {
   let inbox = initialState?.inbox ?? [];
-  const owners = () => ["All owners", ...new Set(inbox.flatMap((entry) => (entry.pullRequests ?? []).map((pr) => pr.author)))];
+  const owners = () => ["All owners", ...new Set(inbox.flatMap((entry) => (entry.pullRequests ?? []).map((pr) => pr.author)).filter((author) => author && author !== "unknown"))];
   let ownerIndex = 0;
   let attentionIndex = 0;
   const attentionValues = ["All", "review_requested", "failed_ci"];

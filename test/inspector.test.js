@@ -179,6 +179,33 @@ test("the inspector switches between Checks and Files tabs with keyboard input",
   assert.ok(renders.length >= 3);
 });
 
+test("clicking a tab selects it absolutely after another tab was active", () => {
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: detail,
+  });
+
+  const tabClick = (label) => {
+    const lines = inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
+    const y = lines.findIndex((line) => line.includes(label));
+    const x = lines[y].indexOf(label);
+    return { type: "click", button: "left", x, y };
+  };
+  const timelineClick = tabClick("Timeline");
+  const filesClick = tabClick("Files");
+
+  assert.deepEqual(inspector.handleMouse(timelineClick), { handled: true, render: true });
+  assert.equal(inspector.getActiveTab(), "Timeline");
+  inspector.handleInput("j");
+  assert.equal(JSON.parse(inspector.digest()).scrollOffset, 1);
+
+  assert.deepEqual(inspector.handleMouse(filesClick), { handled: true, render: true });
+  assert.equal(inspector.getActiveTab(), "Files");
+  assert.equal(JSON.parse(inspector.digest()).scrollOffset, 0);
+  assert.match(plain(inspector.render(96)), /src\/inspector\.js/);
+});
+
 test("the inspector closes with Escape and opens GitHub with o", () => {
   const events = [];
   const inspector = createPullRequestInspector({

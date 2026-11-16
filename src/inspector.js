@@ -31,6 +31,18 @@ function truncateText(value, width) {
   return `${text.replace(ANSI_PATTERN, "").slice(0, width - 1)}…`;
 }
 
+function formatTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const pad = (part) => String(part).padStart(2, "0");
+  const offsetMinutes = -date.getTimezoneOffset();
+  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const offset = `${offsetSign}${pad(Math.floor(absoluteOffset / 60))}:${pad(absoluteOffset % 60)}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} UTC${offset}`;
+}
+
 function wrapText(value, width) {
   const text = cleanExternalText(value);
   if (!text) return [];
@@ -171,9 +183,8 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     }
 
     const lines = [];
-    const fetched = context.fetchedAt
-      ? `Fetched ${new Date(context.fetchedAt).toTimeString().slice(0, 5)} · read-only`
-      : "Read-only context";
+    const fetchedAt = formatTimestamp(context.fetchedAt);
+    const fetched = fetchedAt ? `Fetched ${fetchedAt} · read-only` : "Read-only context";
     lines.push({ token: "muted", text: fetched });
     const issues = Array.isArray(context.linkedIssues) ? context.linkedIssues : [];
     lines.push({ token: "text", text: `Linked issue${issues.length === 1 ? "" : "s"}${issues.length ? ` · ${issues.length} reference${issues.length === 1 ? "" : "s"}` : ""}`, bold: true });
@@ -240,8 +251,10 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     }
 
     const lines = [];
-    const opened = timeline.openedAt ? `Opened ${new Date(timeline.openedAt).toTimeString().slice(0, 5)}` : "Opened";
-    const merged = timeline.mergedAt ? ` · merged ${new Date(timeline.mergedAt).toTimeString().slice(0, 5)}` : " · not merged";
+    const openedAt = formatTimestamp(timeline.openedAt);
+    const mergedAt = formatTimestamp(timeline.mergedAt);
+    const opened = openedAt ? `Opened ${openedAt}` : "Opened";
+    const merged = mergedAt ? ` · merged ${mergedAt}` : " · not merged";
     lines.push({ token: "muted", text: `${opened}${merged} · read-only` });
     // Render stays pure: the synthetic merge row is pushed onto a copy so
     // the session state object is never mutated during render.
@@ -258,8 +271,8 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
     } else {
       for (const event of events) {
         const label = event.kind === "merged" ? mergeLabel : (TIMELINE_EVENT_LABELS[event.kind] || event.kind);
-        const time = event.at ? new Date(event.at).toTimeString().slice(0, 5) : "";
-        const suffix = time ? ` · ${time}` : "";
+        const timestamp = formatTimestamp(event.at);
+        const suffix = timestamp ? ` · ${timestamp}` : "";
         const token = event.kind === "merged" ? "success"
           : event.kind === "review" && event.state === "CHANGES_REQUESTED" ? "error"
           : event.kind === "review" && event.state === "APPROVED" ? "success"
@@ -294,7 +307,8 @@ export function createPullRequestInspector({ tui, theme, keybindings, matchesKey
           : "warning";
         const icon = run.status === "in_progress" ? "◷" : run.conclusion === "success" ? "✓" : neutral ? "–" : run.status === "completed" ? "×" : "◷";
         const stateLabel = run.status === "in_progress" ? "Running" : run.conclusion || run.status;
-        const time = run.startedAt ? ` · ${new Date(run.startedAt).toTimeString().slice(0, 5)}` : "";
+        const timestamp = formatTimestamp(run.startedAt);
+        const time = timestamp ? ` · ${timestamp}` : "";
         lines.push({ token, text: `${icon} ${run.name || "Workflow"} · ${stateLabel}${time}` });
       }
     }

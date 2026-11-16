@@ -59,6 +59,15 @@ function plain(lines) {
   return lines.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
 }
 
+function localTimestamp(value) {
+  const date = new Date(value);
+  const pad = (part) => String(part).padStart(2, "0");
+  const offsetMinutes = -date.getTimezoneOffset();
+  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteOffset = Math.abs(offsetMinutes);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} UTC${offsetSign}${pad(Math.floor(absoluteOffset / 60))}:${pad(absoluteOffset % 60)}`;
+}
+
 test("the inspector renders a theme-aware Overview without a diff viewer", () => {
   const theme = createTheme();
   const inspector = createPullRequestInspector({
@@ -250,7 +259,7 @@ test("the inspector exposes a Context tab with linked issues, review threads, an
   const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
 
   assert.match(lines, /\[Context\]/);
-  assert.match(lines, /Fetched \d\d:\d\d · read-only/);
+  assert.ok(lines.includes(`Fetched ${localTimestamp("2026-11-12T15:08:00Z")} · read-only`));
   assert.match(lines, /Linked issue/);
   assert.match(lines, /#128 · Prevent open redirects/);
   assert.match(lines, /Keep OAuth return URLs on the current origin/);
@@ -361,19 +370,54 @@ test("the inspector exposes a Timeline tab with lifecycle events and workflow ru
 
   inspector.setTab("Timeline");
   assert.equal(inspector.getActiveTab(), "Timeline");
-  const lines = inspector.render(60).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
+  const lines = inspector.render(96).map((line) => line.replace(/\u001b\[[0-9;]*m/g, "")).join("\n");
 
   assert.match(lines, /\[Timeline\]/);
-  const expectedOpened = new Date("2026-11-12T13:08:00Z").toTimeString().slice(0, 5);
-  const expectedReview = new Date("2026-11-12T13:26:00Z").toTimeString().slice(0, 5);
-  assert.match(lines, new RegExp(`Opened ${expectedOpened}`));
-  assert.match(lines, new RegExp(`Changes requested · gentle-review · ${expectedReview}`));
-  const expectedApproved = new Date("2026-11-12T14:38:00Z").toTimeString().slice(0, 5);
-  const expectedMerged = new Date("2026-11-12T14:42:00Z").toTimeString().slice(0, 5);
-  assert.match(lines, new RegExp(`Approved · gentle-review · ${expectedApproved}`));
-  assert.match(lines, /Merged into main · lmsastre · \d\d:\d\d · e9b42af/);
+  assert.ok(lines.includes(`Opened ${localTimestamp("2026-11-12T13:08:00Z")}`));
+  assert.ok(lines.includes(`Changes requested · gentle-review · ${localTimestamp("2026-11-12T13:26:00Z")}`));
+  assert.ok(lines.includes(`Approved · gentle-review · ${localTimestamp("2026-11-12T14:38:00Z")}`));
+  assert.ok(lines.includes(`Merged into main · lmsastre · ${localTimestamp("2026-11-12T14:42:00Z")} · e9b42af`));
   assert.match(lines, /GitHub Actions · 1 run/);
-  assert.match(lines, new RegExp(`◷ Deploy production · Running · ${expectedMerged}`));
+  assert.ok(lines.includes(`◷ Deploy production · Running · ${localTimestamp("2026-11-12T14:42:00Z")}`));
+});
+
+test("inspector timestamps include the local date and UTC offset and hide invalid values", () => {
+  const contextFetchedAt = "2026-11-10T13:08:00Z";
+  const openedAt = "2026-11-11T13:08:00Z";
+  const reviewedAt = "2026-11-12T13:26:00Z";
+  const state = {
+    ...detail,
+    pullRequest: {
+      ...detail.pullRequest,
+      context: { fetchedAt: contextFetchedAt, linkedIssues: [], reviewThreads: [], failedCheck: undefined },
+      timeline: {
+        fetchedAt: "2026-11-12T15:08:00Z",
+        openedAt,
+        mergedAt: undefined,
+        mergedBy: "",
+        events: [
+          { kind: "review", state: "APPROVED", at: reviewedAt, author: "gentle-review" },
+          { kind: "closed", at: "not-a-timestamp", author: "octocat" },
+        ],
+        workflowRuns: [],
+      },
+    },
+  };
+  const inspector = createPullRequestInspector({
+    tui: { requestRender() {} },
+    theme: createTheme(),
+    initialState: state,
+  });
+
+  inspector.setTab("Context");
+  assert.ok(plain(inspector.render(96)).includes(`Fetched ${localTimestamp(contextFetchedAt)} · read-only`));
+
+  inspector.setTab("Timeline");
+  const timeline = plain(inspector.render(96));
+  assert.ok(timeline.includes(`Opened ${localTimestamp(openedAt)}`));
+  assert.ok(timeline.includes(`Approved · gentle-review · ${localTimestamp(reviewedAt)}`));
+  assert.match(timeline, /Closed · octocat/);
+  assert.doesNotMatch(timeline, /Invalid|not-a-timestamp/);
 });
 
 test("the Timeline tab degrades gracefully without timeline data", () => {

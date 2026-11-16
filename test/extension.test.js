@@ -400,7 +400,7 @@ test("the timeline is still collected when the context query fails", async () =>
   assert.match(lines, new RegExp(`Changes requested .* ${expectedTime}`));
 });
 
-test("the timeline pending marker starts only when timeline collection starts", async () => {
+test("context and timeline fetches start concurrently with their own pending markers", async () => {
   const harness = createHarness();
   const focusedResult = {
     repository: "oniricosistemas/gentle-shell-PR",
@@ -414,6 +414,8 @@ test("the timeline pending marker starts only when timeline collection starts", 
   };
   let releaseContext;
   const contextPromise = new Promise((resolve) => { releaseContext = resolve; });
+  let releaseTimeline;
+  const timelinePromise = new Promise((resolve) => { releaseTimeline = resolve; });
   const timelineCalls = [];
   createPrSidebarExtension({
     collect: async () => focusedResult,
@@ -426,13 +428,9 @@ test("the timeline pending marker starts only when timeline collection starts", 
       },
     }),
     collectContext: () => contextPromise,
-    collectTimeline: async ({ number }) => {
+    collectTimeline: ({ number }) => {
       timelineCalls.push(number);
-      return {
-        repository: focusedResult.repository,
-        error: undefined,
-        timeline: { fetchedAt: "2026-11-12T15:08:00Z", openedAt: "2026-11-12T13:08:00Z", mergedAt: undefined, mergedBy: "", events: [], workflowRuns: [] },
-      };
+      return timelinePromise;
     },
     setIntervalFn: () => 1,
     clearIntervalFn() {},
@@ -442,13 +440,18 @@ test("the timeline pending marker starts only when timeline collection starts", 
   const focusPromise = harness.commands.get("pr-focus").handler("", harness.context);
   await new Promise((resolve) => setImmediate(resolve));
   const inspector = harness.ui.customs[1].component;
+  // Both optional fetches start concurrently: while they are in flight each
+  // tab shows its own loading state instead of a stale unavailable one.
   inspector.setTab("Timeline");
-  // While only the context query is in flight, the Timeline tab must not
-  // claim to be loading: the timeline fetch has not started yet.
-  const pendingLines = inspector.render(96).join("\n");
-  assert.doesNotMatch(pendingLines, /Loading timeline/);
-  assert.match(pendingLines, /Timeline is unavailable/);
+  assert.match(inspector.render(96).join("\n"), /Loading timeline/);
+  inspector.setTab("Context");
+  assert.match(inspector.render(96).join("\n"), /Loading review context/);
 
+  releaseTimeline({
+    repository: focusedResult.repository,
+    error: undefined,
+    timeline: { fetchedAt: "2026-11-12T15:08:00Z", openedAt: "2026-11-12T13:08:00Z", mergedAt: undefined, mergedBy: "", events: [], workflowRuns: [] },
+  });
   releaseContext({ repository: focusedResult.repository, error: undefined, context: { fetchedAt: "2026-11-12T22:00:00Z", linkedIssues: [], reviewThreads: [], failedCheck: undefined } });
   await focusPromise;
   assert.deepEqual(timelineCalls, [42]);
@@ -491,10 +494,10 @@ test("the timeline fetch is skipped when the session is already stopped", async 
   await harness.handlers.get("session_start")({}, harness.context);
   const focusPromise = harness.commands.get("pr-focus").handler("", harness.context);
   await new Promise((resolve) => setImmediate(resolve));
-  // The session stops while the context query is still in flight.
+  // The session stops while both fetches are in flight: their calls were
+  // issued while the session was alive, and the late results are discarded.
   harness.handlers.get("session_shutdown")({}, harness.context);
   releaseContext({ repository: focusedResult.repository, error: undefined, context: { fetchedAt: "2026-11-12T22:00:00Z", linkedIssues: [], reviewThreads: [], failedCheck: undefined } });
   await focusPromise;
-  // No GitHub request may be spent on a discarded result.
-  assert.deepEqual(timelineCalls, []);
+  assert.deepEqual(timelineCalls, [42]);
 });

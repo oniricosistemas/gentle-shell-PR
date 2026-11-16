@@ -248,7 +248,7 @@ test("collectPullRequests uses read-only git and gh commands and prioritizes the
         "--limit",
         "5",
         "--json",
-        "number,title,url,headRefName,baseRefName,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,latestReviews,updatedAt",
+        "author,number,title,url,headRefName,baseRefName,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,latestReviews,updatedAt",
       ],
       cwd: "/workspace/project",
     },
@@ -854,4 +854,71 @@ test("inbox collector discovers repositories without the Unix find command", asy
   assert.deepEqual(result.repositories, [
     { repository: "owner/pr-flow", cwd: "/workspace/pr-flow", current: true },
   ]);
+});
+
+test("pull request listing requests the author field", async () => {
+  const calls = [];
+  await github.collectPullRequests({
+    cwd: "/workspace/repo",
+    execute: async (command, args) => {
+      calls.push(args);
+      if (command === "git") return { exitCode: 0, stdout: "https://github.com/owner/repo.git\n", stderr: "" };
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  const jsonArgs = calls.filter((args) => args.includes("--json"));
+  assert.ok(jsonArgs.length > 0, "the collector must call gh pr list with --json");
+  const fields = jsonArgs[0][jsonArgs[0].indexOf("--json") + 1];
+  // The command center owner filter groups by author; without the field
+  // every pull request normalizes to the "unknown" placeholder.
+  assert.match(fields, /(^|,)author(,|$)/);
+});
+
+test("inbox discovery accepts .git files from worktrees and submodules", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/main-repo",
+    fsImpl: makeFs({
+      "/workspace": [["main-repo", true], ["linked-worktree", true], ["vendor-module", true]],
+      "/workspace/main-repo": [[".git", true]],
+      // Worktrees and submodules carry .git as a gitdir pointer file.
+      "/workspace/linked-worktree": [[".git", false]],
+      "/workspace/vendor-module": [[".git", false]],
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  assert.deepEqual(result.repositories.map((entry) => entry.repository), [
+    "owner/main-repo", "owner/linked-worktree", "owner/vendor-module",
+  ]);
+});
+
+test("inbox discovery finds sibling repositories from a repository subdirectory", async () => {
+  const result = await github.collectPullRequestInbox({
+    cwd: "/workspace/pr-flow/src",
+    fsImpl: makeFs({
+      "/workspace/pr-flow/src": [["extension.js", false]],
+      "/workspace/pr-flow": [[".git", true], ["src", true]],
+      "/workspace": [["pr-flow", true], ["sibling-repo", true]],
+      "/workspace/sibling-repo": [[".git", true]],
+    }),
+    execute: async (command, args, options) => {
+      if (command === "git" && args[0] === "remote") {
+        return { exitCode: 0, stdout: `https://github.com/owner/${options?.cwd?.split("/").pop()}.git\n`, stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "" };
+    },
+  });
+
+  // Walking up from the subdirectory reaches the enclosing repository root;
+  // sibling discovery then sees the whole workspace, not the subdirectory.
+  assert.deepEqual(result.repositories.map((entry) => entry.repository), [
+    "owner/pr-flow", "owner/sibling-repo",
+  ]);
+  assert.equal(result.repositories.find((entry) => entry.current)?.repository, "owner/pr-flow");
 });

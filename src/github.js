@@ -3,6 +3,7 @@ import { promises as fsPromises } from "node:fs";
 import { basename, dirname, resolve as resolvePath } from "node:path";
 
 const PR_FIELDS = [
+  "author",
   "number",
   "title",
   "url",
@@ -489,13 +490,21 @@ export async function collectPullRequestTimeline({ cwd, repository, number, exec
   };
 }
 
+function normalizePathForCompare(value, platform = process.platform) {
+  const resolved = resolvePath(String(value ?? ".")).replace(/\\/g, "/");
+  return platform === "win32" || platform === "darwin" ? resolved.toLowerCase() : resolved;
+}
+
 function samePath(left, right, platform = process.platform) {
-  const resolvedLeft = resolvePath(String(left ?? "."));
-  const resolvedRight = resolvePath(String(right ?? "."));
-  if (platform === "win32" || platform === "darwin") {
-    return resolvedLeft.toLowerCase() === resolvedRight.toLowerCase();
-  }
-  return resolvedLeft === resolvedRight;
+  return normalizePathForCompare(left, platform) === normalizePathForCompare(right, platform);
+}
+
+// The caller may run from a repository subdirectory, so the current
+// repository matches its root or any path inside it.
+function isSameOrInsidePath(root, candidate, platform = process.platform) {
+  const normalizedRoot = normalizePathForCompare(root, platform);
+  const normalizedCandidate = normalizePathForCompare(candidate, platform);
+  return normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}/`);
 }
 
 const INBOX_REPOSITORY_LIMIT = 8;
@@ -506,7 +515,7 @@ const INBOX_REPOSITORY_LIMIT = 8;
  * directories by name. Uses Node filesystem APIs so it works on every
  * platform instead of shelling out to the Unix `find` command.
  */
-async function discoverGitRoots({ searchRoot, fsImpl }) {
+async function discoverGitRoots({ cwd, fsImpl }) {
   const roots = [];
   const cache = new Map();
   const list = async (dir) => {
@@ -522,16 +531,36 @@ async function discoverGitRoots({ searchRoot, fsImpl }) {
     }
     return cache.get(dir);
   };
-  const hasGitDirectory = (entries) => entries.some((entry) => entry.name === ".git" && entry.isDirectory?.());
+  // A .git entry marks a repository root whether it is a directory (clone)
+  // or a file (worktree, submodule).
+  const hasGitEntry = (entries) => entries.some((entry) => entry.name === ".git");
+
+  // Walk up from the working directory to the enclosing repository root so
+  // sibling discovery works from any repository subdirectory.
+  const startDir = resolvePath(String(cwd ?? "."));
+  let repoRoot;
+  let cursor = startDir;
+  for (let depth = 0; depth < 5 && !repoRoot; depth += 1) {
+    if (hasGitEntry(await list(cursor))) {
+      repoRoot = cursor;
+    } else {
+      const parent = dirname(cursor);
+      if (parent === cursor) break;
+      cursor = parent;
+    }
+  }
+  // Sibling workspaces live next to the enclosing repository root (or next
+  // to the working directory when there is no enclosing repository).
+  const searchRoot = repoRoot ? dirname(repoRoot) : dirname(startDir);
 
   const topEntries = await list(searchRoot);
   // The search root itself may be a repository (depth-1 .git), and sibling
   // repositories live one level below it.
-  if (hasGitDirectory(topEntries)) roots.push(searchRoot);
+  if (hasGitEntry(topEntries)) roots.push(searchRoot);
   for (const entry of topEntries) {
     if (!entry.isDirectory?.() || entry.name === "node_modules") continue;
     const child = resolvePath(searchRoot, entry.name);
-    if (hasGitDirectory(await list(child))) roots.push(child);
+    if (hasGitEntry(await list(child))) roots.push(child);
   }
   return roots;
 }
@@ -546,10 +575,8 @@ async function discoverGitRoots({ searchRoot, fsImpl }) {
 export async function collectPullRequestInbox({ cwd, execute = executeFile, limit = 5, platform = process.platform, fsImpl = fsPromises }) {
   const repositories = [];
   try {
-    // Sibling workspaces live next to the current repository, so discovery
-    // walks its parent directory.
-    const searchRoot = dirname(resolvePath(String(cwd ?? ".")));
-    const roots = (await discoverGitRoots({ searchRoot, fsImpl })).slice(0, INBOX_REPOSITORY_LIMIT * 2);
+    // Sibling workspaces live next to the enclosing repository root.
+    const roots = (await discoverGitRoots({ cwd, fsImpl })).slice(0, INBOX_REPOSITORY_LIMIT * 2);
     for (const root of roots) {
       const remoteResult = await execute("git", ["remote", "get-url", "origin"], { cwd: root, timeoutMs: 10_000 });
       const repository = remoteResult.exitCode === 0 ? parseGitHubRemote(remoteResult.stdout) : undefined;
@@ -562,7 +589,7 @@ export async function collectPullRequestInbox({ cwd, execute = executeFile, limi
           // paths so the current repository is still marked as current.
           // macOS and Windows compare paths case-insensitively, so those
           // platforms also ignore capitalization differences.
-          current: samePath(root, cwd ?? ".", platform),
+          current: isSameOrInsidePath(root, cwd ?? ".", platform),
         });
       }
     }

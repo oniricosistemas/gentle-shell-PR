@@ -88,7 +88,7 @@ The v0.4 inspector adds a fifth tab:
 
 - **Timeline** — the pull request's story on one read-only line per entry: lifecycle events (reviews, merge, closed/ready/draft transitions) and GitHub Actions runs associated with the pull request's head or merge commit, including deployments that keep running after the merge. A merged pull request always shows its merge row even when the bounded event list is empty. Timeline is local-only and degrades like the Context tab.
 
-Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `1`–`5` to jump to a tab, or click a tab title, `j`/`k` to scroll, `Enter` to expand the failed-check excerpt on the Context tab, `o` to open GitHub, and `Esc` to close the inspector.
+Files intentionally does not render patches or a second diff viewer because Gentle Shell already provides that workflow. Use `←`/`→` or `Tab` to change tabs, `1`–`5` to jump to a tab, or click a tab title, `j`/`k` to scroll, `Enter` to expand the failed-check excerpt on the Context tab, `o` to open GitHub, and `Esc` to close the inspector. If no graphical browser is available, the extension explains that limitation, copies the canonical PR URL to the clipboard, and notifies you. Other browser-launch failures use a generic warning after copying. If copying also fails, the warning includes the URL so you can open it manually. The same fallback applies to `/pr-open`.
 
 ## Commands
 
@@ -99,7 +99,7 @@ Files intentionally does not render patches or a second diff viewer because Gent
 | `/pr-sidebar` | Show or hide the sidebar. |
 | `/pr-sidebar-collapse` | Collapse or expand the panel. |
 | `/pr-focus` | Open the current branch pull request in the focused inspector. |
-| `/pr-open` | Open the current branch pull request in the browser. |
+| `/pr-open` | Open the current branch pull request in the browser, or copy its URL if opening fails. |
 
 When visible, the extension refreshes every 60 seconds. Hiding it pauses automatic refreshes until it is shown again.
 
@@ -132,7 +132,7 @@ Opening the inspector performs one additional bounded metadata read:
 gh pr view <number> --repo <owner/repository> --json ...
 ```
 
-The request includes pull request facts, check results, and changed-file metadata, but never patch or diff fields. `/pr-open` and `o` run `gh pr view --web` to open the selected pull request. The extension does not create, edit, review, merge, or close pull requests.
+The request includes pull request facts, check results, and changed-file metadata, but never patch or diff fields. `/pr-open` and `o` run `gh pr view <canonical-url> --web` to open the selected pull request, falling back to its number and repository only when no URL is available. If browser launch fails, Pi's public clipboard utility copies the URL; when no graphical browser is available, the warning states that explicitly. If copying also fails, a warning displays the URL. The extension does not create, edit, review, merge, or close pull requests.
 
 ## Host compatibility
 

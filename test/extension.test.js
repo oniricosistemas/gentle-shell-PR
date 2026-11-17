@@ -161,13 +161,72 @@ test("pr-focus opens a capturing inspector and loads Overview, Checks and Files 
   inspector.component.handleInput(kittyO);
   assert.deepEqual(executeCalls, [[
     "gh",
-    ["pr", "view", "42", "--repo", focusedResult.repository, "--web"],
+    ["pr", "view", focusedResult.pullRequests[0].url, "--web"],
     { cwd: "/workspace/project" },
   ]]);
   inspector.component.handleInput("\u001b[27u");
   await inspector.promise;
   assert.equal(inspector.closed, true);
 });
+
+for (const entryPoint of ["inspector o", "pr-open"]) {
+  for (const scenario of ["opens", "copies", "clipboard fails", "launch throws", "no URL opens", "no URL copies"]) {
+    test(`${entryPoint}: GitHub ${scenario}`, async () => {
+      const harness = createHarness();
+      const url = "https://github.com/canonical/repository/pull/42";
+      const noUrl = scenario.startsWith("no URL");
+      const pullRequest = {
+        number: 42, title: "Selected PR", headBranch: "feat/sidebar",
+        url: noUrl ? undefined : url,
+        checks: [], files: [], labels: [], bodySummary: "", author: "octocat",
+      };
+      const state = { ...result, pullRequests: [pullRequest] };
+      const calls = [];
+      const copies = [];
+      const succeeds = scenario.endsWith("opens");
+      createPrSidebarExtension({
+        collect: async () => state,
+        collectDetail: async () => ({ repository: state.repository, pullRequest }),
+        collectContext: async () => ({}),
+        collectTimeline: async () => ({}),
+        execute: async (...args) => {
+          calls.push(args);
+          if (scenario === "launch throws") throw new Error("opener unavailable");
+          return { exitCode: succeeds ? 0 : 1, stdout: "", stderr: "xdg-open: no method available" };
+        },
+        copyToClipboard: async (text) => {
+          copies.push(text);
+          if (scenario === "clipboard fails") throw new Error("clipboard unavailable");
+        },
+        setIntervalFn: () => 1,
+        clearIntervalFn() {},
+      })(harness.pi);
+      await harness.handlers.get("session_start")({}, harness.context);
+      if (entryPoint === "inspector o") {
+        await harness.commands.get("pr-focus").handler("", harness.context);
+        harness.ui.customs[1].component.handleInput("o");
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(harness.ui.customs[1].closed, false);
+      } else {
+        await harness.commands.get("pr-open").handler("", harness.context);
+      }
+      assert.deepEqual(calls, [["gh", noUrl
+        ? ["pr", "view", "42", "--repo", state.repository, "--web"]
+        : ["pr", "view", url, "--web"], { cwd: harness.context.cwd }]]);
+      const copiedUrl = noUrl ? `https://github.com/${state.repository}/pull/42` : url;
+      assert.deepEqual(copies, succeeds ? [] : [copiedUrl]);
+      assert.deepEqual(harness.notifications, succeeds ? [] : [{
+        message: scenario === "clipboard fails"
+          ? `Could not open the pull request or copy its URL. Open manually: ${copiedUrl}`
+          : scenario === "launch throws"
+            ? "Could not open the pull request; URL copied to clipboard"
+            : "No graphical browser is available; pull request URL copied to clipboard",
+        level: "warning",
+      }]);
+      harness.handlers.get("session_shutdown")({}, harness.context);
+    });
+  }
+}
 
 test("the extension warns once when Markdown rendering fails and keeps the inspector usable", async () => {
   const harness = createHarness();

@@ -20,6 +20,7 @@ export function createPrSidebarExtension(dependencies = {}) {
   const collectTimeline = dependencies.collectTimeline ?? collectPullRequestTimeline;
   const collectInbox = dependencies.collectInbox ?? collectPullRequestInbox;
   const execute = dependencies.execute ?? executeFile;
+  const copyToClipboard = dependencies.copyToClipboard;
   const matchesKey = dependencies.matchesKey;
   const renderMarkdown = dependencies.renderMarkdown;
   const setIntervalFn = dependencies.setIntervalFn ?? setInterval;
@@ -79,9 +80,31 @@ export function createPrSidebarExtension(dependencies = {}) {
 
     const openInGitHub = async (current, pullRequest, context = current.context) => {
       if (!current.state.repository || !pullRequest) return false;
-      const result = await execute("gh", ["pr", "view", String(pullRequest.number), "--repo", current.state.repository, "--web"], { cwd: context.cwd });
-      if (result.exitCode !== 0) context.ui.notify("Could not open the pull request", "warning");
-      return result.exitCode === 0;
+      const url = pullRequest.url || `https://github.com/${current.state.repository}/pull/${pullRequest.number}`;
+      const args = pullRequest.url
+        ? ["pr", "view", pullRequest.url, "--web"]
+        : ["pr", "view", String(pullRequest.number), "--repo", current.state.repository, "--web"];
+      let graphicalBrowserUnavailable = false;
+      try {
+        const result = await execute("gh", args, { cwd: context.cwd });
+        if (result.exitCode === 0) return true;
+        graphicalBrowserUnavailable = /xdg-open: no method available|no graphical browser is available/i.test(result.stderr ?? "");
+      } catch {
+        // A missing or failed opener must leave the URL actionable too.
+      }
+      try {
+        await copyToClipboard(url);
+      } catch {
+        context.ui.notify(`Could not open the pull request or copy its URL. Open manually: ${url}`, "warning");
+        return false;
+      }
+      context.ui.notify(
+        graphicalBrowserUnavailable
+          ? "No graphical browser is available; pull request URL copied to clipboard"
+          : "Could not open the pull request; URL copied to clipboard",
+        "warning",
+      );
+      return false;
     };
 
     const openInspector = async (current, pullRequest, context = current.context) => {
@@ -395,7 +418,7 @@ export function createPrSidebarExtension(dependencies = {}) {
     });
 
     pi.registerCommand("pr-open", {
-      description: "Open the current branch pull request in GitHub",
+      description: "Open the current branch pull request in GitHub (copy URL if opening fails)",
       handler: async (_args, context) => {
         const state = active?.state;
         const pullRequest = selectPullRequest(state);
